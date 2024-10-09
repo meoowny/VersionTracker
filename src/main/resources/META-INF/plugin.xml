@@ -24,12 +24,13 @@
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
-
+<depends optional="true">org.slf4j:slf4j-api</depends>
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
         <notificationGroup displayType="BALLOON" id="VersionTrackerGroup"/>
         <toolWindow factoryClass="edu.tongji.versiontracker.VersionTrackerToolWindowFactory" id="Modification History" icon="com.intellij.icons.ExpUiIcons.General.History"/>
+        <projectService serviceImplementation="edu.tongji.versiontracker.VersionTrackerService"/>
     </extensions>
     <actions>
         <action id="edu.tongji.versiontracker.ShowProjectNameAction"
@@ -38,7 +39,8 @@
         </action>
     </actions>
     <applicationListeners>
-        <listener class="edu.tongji.versiontracker.AppOpenListener" topic="com.intellij.ide.AppLifecycleListener"/>
+        <listener class="edu.tongji.versiontracker.AppOpenListener"
+                  topic="com.intellij.openapi.project.ProjectManagerListener"/>
     </applicationListeners>
     <projectListeners>
         <listener class="edu.tongji.versiontracker.MyToolWindowListener"

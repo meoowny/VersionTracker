@@ -1,11 +1,8 @@
 package edu.tongji.versiontracker;
 
-import com.intellij.notification.Notification;
-import com.intellij.notification.NotificationType;
-import com.intellij.notification.Notifications;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
-import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -14,16 +11,20 @@ import java.util.List;
  * 一个测试用途的文件修改监听器，最终代码中应当移除。
  */
 public class MyFileChangeListener implements BulkFileListener {
+    private final Project project;
+    private final VersionTrackerService versionTrackerService;
+
+    public MyFileChangeListener(Project project) {
+        this.project = project;
+        this.versionTrackerService = project.getService(VersionTrackerService.class);
+    }
+
     @Override
     public void after(@NotNull List<? extends VFileEvent> events) {
-        StringBuilder content = new StringBuilder();
-        for (VFileEvent event : events)
-            if (event instanceof VFileContentChangeEvent) {
-                var file = event.getFile();
-                content.append(file.getExtension()).append("\n");
+        for (VFileEvent event : events) {
+            if (event.isFromSave() || event.isFromRefresh()) {
+                versionTrackerService.trackChange(event.getFile());
             }
-
-        var note = new Notification("VersionTrackerGroup", "Test for notification\n" + content, NotificationType.INFORMATION);
-        Notifications.Bus.notify(note);
+        }
     }
 }

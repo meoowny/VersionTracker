@@ -1,11 +1,12 @@
 package edu.tongji.versiontracker;
 
+import org.jetbrains.annotations.NotNull;
+
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.vfs.VirtualFile;
-import org.jetbrains.annotations.NotNull;
 
 /**
  * 用于监听文件修改的监听器，粒度较细，每次编辑都会触发。

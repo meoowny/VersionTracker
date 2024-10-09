@@ -1,17 +1,21 @@
 package edu.tongji.versiontracker;
 
-import com.intellij.ide.AppLifecycleListener;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManagerListener;
+import org.jetbrains.annotations.NotNull;
 
-public class AppOpenListener implements AppLifecycleListener {
-    /**
-     * 应用启动后注册插件相关服务。IDEA 推荐在项目加载后再注册相关服务，以保证 IDEA 的启动速度。
-     * 但是考虑到 component 被弃用，而 ProjectActivity 需要使用 Kotlin 代码，因此这里退而求其次，直接在应用启动时注册相关服务。
-     */
+public class AppOpenListener implements ProjectManagerListener {
+
     @Override
-    public void appStarted() {
-        System.out.println("hi");
-        var service = ApplicationManager.getApplication().getService(VersionTrackerService.class);
-        service.initService();
+    public void projectOpened(@NotNull Project project) {
+        System.out.println("VersionTracker plugin initialized for project: " + project.getName());
+        VersionTrackerService service = project.getService(VersionTrackerService.class);
+        // 如果需要对服务进行任何初始化，可以在这里进行
+    }
+
+    @Override
+    public void projectClosed(@NotNull Project project) {
+        System.out.println("VersionTracker plugin closed for project: " + project.getName());
+        // 如果需要在项目关闭时进行清理，可以在这里进行
     }
 }
