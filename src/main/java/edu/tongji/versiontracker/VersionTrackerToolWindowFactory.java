@@ -30,7 +30,7 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
         VersionTrackerToolWindowContent toolWindowContent = new VersionTrackerToolWindowContent(project);
 
         // 使用ContentFactory创建一个新的Content对象，包含工具窗口内容组件
-        Content content = ContentFactory.SERVICE.getInstance().createContent(toolWindowContent.getContent(), "", false);
+        Content content = ContentFactory.getInstance().createContent(toolWindowContent.getContent(), "", false);
 
         // 将新创建的内容组件添加到工具窗口的内容管理器中
         toolWindow.getContentManager().addContent(content);
@@ -97,14 +97,14 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
      * 用于在Swing表格中展示版本跟踪服务的历史记录
      */
     private static class VersionHistoryTableModel extends AbstractTableModel {
-        private List<VersionTrackerService.VersionInfo> versionHistory;
+        private List<VersionManager.VersionInfo> versionHistory;
         private final String[] columnNames = {"Timestamp", "File Path", "View"};
 
         /**
          * 构造函数，初始化版本历史数据
          * @param versionHistory 版本历史记录列表
          */
-        public VersionHistoryTableModel(List<VersionTrackerService.VersionInfo> versionHistory) {
+        public VersionHistoryTableModel(List<VersionManager.VersionInfo> versionHistory) {
             this.versionHistory = versionHistory;
         }
 
@@ -112,7 +112,7 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
          * 设置版本历史数据，并通知观察者数据已更改
          * @param versionHistory 版本历史记录列表
          */
-        public void setVersionHistory(List<VersionTrackerService.VersionInfo> versionHistory) {
+        public void setVersionHistory(List<VersionManager.VersionInfo> versionHistory) {
             this.versionHistory = versionHistory;
             fireTableDataChanged();
         }
@@ -138,7 +138,7 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
             // 获取指定单元格的值
-            VersionTrackerService.VersionInfo info = versionHistory.get(rowIndex);
+            VersionManager.VersionInfo info = versionHistory.get(rowIndex);
             switch (columnIndex) {
                 case 0: return info.timestamp;
                 case 1: return info.filePath;
@@ -157,7 +157,7 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
         public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
             // 单元格值设置操作，用于查看版本内容
             if (columnIndex == 2) {
-                VersionTrackerService.VersionInfo info = versionHistory.get(rowIndex);
+                VersionManager.VersionInfo info = versionHistory.get(rowIndex);
                 try {
                     String content = new String(Files.readAllBytes(Paths.get(info.versionFilePath)));
                     JTextArea textArea = new JTextArea(content);

@@ -24,7 +24,7 @@
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
-<depends optional="true">org.slf4j:slf4j-api</depends>
+    <depends optional="true">org.slf4j:slf4j-api</depends>
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
@@ -39,13 +39,7 @@
         </action>
     </actions>
     <applicationListeners>
-        <listener class="edu.tongji.versiontracker.AppOpenListener"
+        <listener class="edu.tongji.versiontracker.ProjectListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>
     </applicationListeners>
-    <projectListeners>
-        <listener class="edu.tongji.versiontracker.MyToolWindowListener"
-                  topic="com.intellij.openapi.wm.ex.ToolWindowManagerListener"/>
-        <listener class="edu.tongji.versiontracker.MyFileChangeListener"
-                  topic="com.intellij.openapi.vfs.newvfs.BulkFileListener"/>
-    </projectListeners>
 </idea-plugin>

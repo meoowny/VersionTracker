@@ -13,6 +13,10 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 
+/**
+ * 验证用的 Action，注册到 Help 下，点击后显示当前项目标题
+ * 似乎被绑定了 git 的相关逻辑
+ */
 public class ShowProjectNameAction extends AnAction {
 
     @Override

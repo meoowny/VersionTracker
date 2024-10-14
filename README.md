@@ -36,3 +36,14 @@
   - 按版本/增量-版本号-项目结构树-文件 diff 的格式存储
   - 用户界面按照相同层级进行显示
 - git 相关 API
+
+## 项目结构说明
+
+### 监听器
+
+- 编辑操作监听器：PsiTreeListener
+- 文件保存/删除监听器：FileListener
+- IDE 退出：ProjectListener（原 AppOpenListener）
+- 定时器：VersionTrackerTimer
+
+前两者可以拿到具体的文件句柄，可以较为方便地获得修改位置与信息。后两者无法拿到具体的被修改文件，需要先通过一些方法获得被修改过的文件。
