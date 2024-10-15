@@ -45,8 +45,8 @@ public class ShowProjectNameAction extends AnAction {
             String basePath = project.getBasePath();
             // 确保项目路径不为空
             if (basePath != null) {
-                // 打开Git仓库
-                Git git = Git.open(new File(basePath));
+                // 使用插件服务的 git 实例
+                Git git = project.getService(VersionTrackerService.class).getGitInstance();
 
                 // 定义新的分支名称
                 String newBranchName = "new-feature-branch";

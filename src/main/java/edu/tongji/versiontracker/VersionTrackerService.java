@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Timer;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.editor.EditorFactory;
@@ -23,18 +25,18 @@ import com.intellij.openapi.vfs.VirtualFileListener;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiTreeChangeEvent;
+import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * 插件的核心服务类，负责注册和移除插件部分相关监听器，并且可以维护插件的状态信息。
  */
 public final class VersionTrackerService implements Disposable {
-    // private static VersionTrackerService service;
     private final Project project;
     private Timer timer = new Timer();
     private final VersionManager versionManager;
 
-    public VersionTrackerService(Project project) {
+    public VersionTrackerService(Project project) throws IOException {
         System.out.println("VersionTrackerService init...");
         this.project = project;
         this.versionManager = new VersionManager(project);
@@ -46,6 +48,10 @@ public final class VersionTrackerService implements Disposable {
         // 注册文件修改的监听器
         PsiManager.getInstance(project).addPsiTreeChangeListener(new PsiTreeListener(this), this);
         project.getMessageBus().connect().subscribe(VirtualFileManager.VFS_CHANGES, new FileListener(project, this));
+    }
+
+    public Git getGitInstance() {
+        return this.versionManager.git;
     }
 
     @Override

@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiTreeChangeEvent;
+import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -24,10 +25,16 @@ public class VersionManager {
     private final Project project;
     private final Path versionDirectory;
     private final List<VersionInfo> versionHistory = new ArrayList<>();
+    public final Git git;
 
-    public VersionManager(Project project) {
+    public VersionManager(Project project) throws IOException {
         this.project = project;
         this.versionDirectory = Paths.get(project.getBasePath(), ".version_tracker");
+        try {
+            this.git = Git.open(new File(project.getBasePath()));
+        } catch (IOException e) {
+            throw new IOException(e.getMessage());
+        }
     }
 
     /**
@@ -86,6 +93,8 @@ public class VersionManager {
         var file = event.getFile();  // 获取被修改文件
         VirtualFile virtualFile = file.getVirtualFile(); // 从 file 获取 VirtualFile 对象
     }
+
+    // TODO: 完成一个根据项目而不是具体文件查找变更内容的函数，可以考虑使用当前对象的 git 实例的 diff 方法
 
     /**
      * 保存文件版本
