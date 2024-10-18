@@ -1,32 +1,18 @@
 package edu.tongji.versiontracker;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Timer;
 
+import org.eclipse.jgit.api.Git;
+import org.jetbrains.annotations.NotNull;
+
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.DefaultActionGroup;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.Service;
-import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileAdapter;
-import com.intellij.openapi.vfs.VirtualFileListener;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiTreeChangeEvent;
-import org.eclipse.jgit.api.Git;
-import org.jetbrains.annotations.NotNull;
 
 /**
  * 插件的核心服务类，负责注册和移除插件部分相关监听器，并且可以维护插件的状态信息。
@@ -42,7 +28,6 @@ public final class VersionTrackerService implements Disposable {
         this.versionManager = new VersionManager(project);
         versionManager.createVersionDirectory();
 
-        // TODO: 定时器触发逻辑待调整
         startTimer();
 
         // 注册文件修改的监听器
@@ -55,10 +40,28 @@ public final class VersionTrackerService implements Disposable {
     }
 
     @Override
-    public void dispose() {
-        System.out.println("VersionTrackerService dispose...");
-        // TODO: 服务注销时需要执行的任务
+public void dispose() {
+    System.out.println("VersionTrackerService dispose...");
+    
+    // 停止定时器
+    stopTimer();
+    
+    // 移除所有监听器
+    PsiManager.getInstance(project).removePsiTreeChangeListener(new PsiTreeListener(this));
+    project.getMessageBus().connect().disconnect();
+    
+    // 关闭 Git 实例（如果有的话）
+    if (versionManager != null && versionManager.git != null) {
+        versionManager.git.close();
     }
+    
+    // // 清理版本管理器
+    // if (versionManager != null) {
+    //     versionManager.cleanup();
+    // }
+    
+    System.out.println("VersionTrackerService disposed successfully.");
+}
 
     public void startTimer() {
         if (timer != null) {
@@ -66,8 +69,8 @@ public final class VersionTrackerService implements Disposable {
         }
         timer = new Timer();
 
-        // TODO: 定时器触发逻辑待调整
-        timer.schedule(new VersionTrackerTimer(project, this), 2000, 2000);
+        // 设置定时器每60秒触发一次
+        timer.schedule(new VersionTrackerTimer(project, this), 0, 60000);
     }
 
     public void stopTimer() {
