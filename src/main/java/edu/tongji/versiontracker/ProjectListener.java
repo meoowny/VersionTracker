@@ -5,6 +5,10 @@ import com.intellij.openapi.project.ProjectManagerListener;
 import org.jetbrains.annotations.NotNull;
 
 public class ProjectListener implements ProjectManagerListener {
+    @Override
+    public void projectOpened(@NotNull Project project) {
+        VersionTrackerService service = project.getService(VersionTrackerService.class);
+    }
 
     /**
      * 项目关闭时触发，用于退出 IDE 时的版本保存
