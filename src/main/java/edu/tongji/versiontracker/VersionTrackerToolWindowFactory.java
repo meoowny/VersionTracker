@@ -1,19 +1,27 @@
 package edu.tongji.versiontracker;
 
+import java.awt.BorderLayout;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.List;
+
+import javax.swing.JButton;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.JTextArea;
+import javax.swing.table.AbstractTableModel;
+
+import org.jetbrains.annotations.NotNull;
+
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
-import org.jetbrains.annotations.NotNull;
-
-import javax.swing.*;
-import javax.swing.table.AbstractTableModel;
-import java.awt.*;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.List;
 
 public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
     /**
@@ -26,8 +34,11 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
      */
     @Override
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
+        // 创建一个 JLabel 用于显示版本计数
+        JLabel versionCountLabel = new JLabel("Total versions: 0");
+
         // 创建VersionTracker工具窗口内容组件
-        VersionTrackerToolWindowContent toolWindowContent = new VersionTrackerToolWindowContent(project);
+        VersionTrackerToolWindowContent toolWindowContent = new VersionTrackerToolWindowContent(project, versionCountLabel);
 
         // 使用ContentFactory创建一个新的Content对象，包含工具窗口内容组件
         Content content = ContentFactory.getInstance().createContent(toolWindowContent.getContent(), "", false);
@@ -45,20 +56,23 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
         private final JPanel contentPanel;
         // 版本跟踪服务，用于获取版本历史
         private final VersionTrackerService versionTrackerService;
+        private final JTable table;
+        private final JLabel versionCountLabel;
 
         /**
          * 构造工具窗口内容
          *
-         * @param project 项目对象，用于获取版本跟踪服务
+         * @param project           项目对象，用于获取版本跟踪服务
          */
-        public VersionTrackerToolWindowContent(Project project) {
+        public VersionTrackerToolWindowContent(Project project, JLabel versionCountLabel) {
             // 初始化版本跟踪服务
             versionTrackerService = project.getService(VersionTrackerService.class);
+            this.versionCountLabel = versionCountLabel;
             // 初始化内容面板，使用BorderLayout布局
             contentPanel = new JPanel(new BorderLayout());
 
             // 创建一个表格，用于显示版本历史数据
-            JTable table = new JTable(new VersionHistoryTableModel(versionTrackerService.getVersionHistory()));
+            table = new JTable(new VersionHistoryTableModel(versionTrackerService.getVersionHistory()));
             // 将表格放入滚动面板中
             JScrollPane scrollPane = new JScrollPane(table);
             // 将滚动面板添加到内容面板的中心区域
@@ -67,9 +81,12 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
             // 创建一个刷新按钮
             JButton refreshButton = new JButton("Refresh");
             // 为按钮添加动作监听器，当点击按钮时刷新表格数据
-            refreshButton.addActionListener(e -> refreshTable(table));
+            refreshButton.addActionListener(e -> refreshTable());
             // 将刷新按钮添加到内容面板的南部区域
             contentPanel.add(refreshButton, BorderLayout.SOUTH);
+
+            // 初始化时刷新一次
+            refreshTable();
         }
 
         /**
@@ -84,11 +101,12 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
         /**
          * 刷新表格数据
          *
-         * @param table 要刷新的表格
          */
-        private void refreshTable(JTable table) {
-            // 将版本历史数据设置到表格模型中
-            ((VersionHistoryTableModel) table.getModel()).setVersionHistory(versionTrackerService.getVersionHistory());
+        private void refreshTable() {
+            List<VersionManager.VersionInfo> history = versionTrackerService.getVersionHistory();
+            System.out.println("Refreshing table. Total versions: " + history.size());
+            ((VersionHistoryTableModel) table.getModel()).setVersionHistory(history);
+            versionCountLabel.setText("Total versions: " + history.size());
         }
     }
 
@@ -98,7 +116,7 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
      */
     private static class VersionHistoryTableModel extends AbstractTableModel {
         private List<VersionManager.VersionInfo> versionHistory;
-        private final String[] columnNames = {"Timestamp", "File Path", "View"};
+        private final String[] columnNames = {"Timestamp", "File Path", "Change Type", "View"};
 
         /**
          * 构造函数，初始化版本历史数据
@@ -142,7 +160,8 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
             switch (columnIndex) {
                 case 0: return info.timestamp;
                 case 1: return info.filePath;
-                case 2: return "View";
+                case 2: return info.changeType;
+                case 3: return "View";
                 default: return null;
             }
         }
@@ -150,13 +169,13 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
         @Override
         public boolean isCellEditable(int rowIndex, int columnIndex) {
             // 设置单元格是否可编辑
-            return columnIndex == 2;
+            return columnIndex == 3;
         }
 
         @Override
         public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
             // 单元格值设置操作，用于查看版本内容
-            if (columnIndex == 2) {
+            if (columnIndex == 3) {
                 VersionManager.VersionInfo info = versionHistory.get(rowIndex);
                 try {
                     String content = new String(Files.readAllBytes(Paths.get(info.versionFilePath)));

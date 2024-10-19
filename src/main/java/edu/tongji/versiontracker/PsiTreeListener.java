@@ -1,8 +1,9 @@
 package edu.tongji.versiontracker;
 
+import org.jetbrains.annotations.NotNull;
+
 import com.intellij.psi.PsiTreeChangeEvent;
 import com.intellij.psi.PsiTreeChangeListener;
-import org.jetbrains.annotations.NotNull;
 
 /**
  * 文件修改的监听器，用户编辑文件后触发。
