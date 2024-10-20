@@ -99,35 +99,40 @@ public class VersionManager {
         VirtualFile virtualFile = file.getVirtualFile();
         if (virtualFile == null || !virtualFile.isValid() || virtualFile.isDirectory()) return;
 
+        // 获取文件路径
+        String filePath = virtualFile.getPath();
+
+        // 排除不需要跟踪的文件夹，如 build、target、out
+        if (filePath.contains("/build/") || filePath.contains("/target/") || filePath.contains("/out/")) {
+            return; // 如果路径包含这些目录，则忽略不处理
+        }
+
         ApplicationManager.getApplication().runReadAction(() -> {
             try {
                 String content = new String(virtualFile.contentsToByteArray());
                 VersionInfo.ChangeType changeType;
 
-                if (event.getChild() != null) 
-                {
+                if (event.getChild() != null) {
                     if (event.getParent() != null) {
-                        // Child added or removed
+                        // 子节点被添加或移除
                         changeType = event.getChild().getParent() == null ? VersionInfo.ChangeType.DELETE : VersionInfo.ChangeType.CREATE;
-                    } 
-                    else {
-                        // Child replaced or moved
+                    } else {
+                        // 子节点被替换或移动
                         changeType = VersionInfo.ChangeType.MODIFY;
                     }
-                } 
-                else 
-                {
-                    // Property changed or children changed
+                } else {
+                    // 属性发生变化或子节点发生变化
                     changeType = VersionInfo.ChangeType.MODIFY;
                 }
 
+                // 保存版本
                 saveVersion(virtualFile.getPath(), content, changeType);
             } catch (IOException e) {
-
                 e.printStackTrace();
             }
         });
     }
+
 
     public List<DiffEntry> getProjectChanges() throws IOException, GitAPIException {
         if (git == null) {
