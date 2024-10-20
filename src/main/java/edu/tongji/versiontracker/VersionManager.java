@@ -103,7 +103,7 @@ public class VersionManager {
         String filePath = virtualFile.getPath();
 
         // 排除不需要跟踪的文件夹，如 build、target、out
-        if (filePath.contains("/build/") || filePath.contains("/target/") || filePath.contains("/out/")) {
+        if (filePath.contains("build") || filePath.contains("target") || filePath.contains("out") || filePath.contains(".version_tracker")) {
             return; // 如果路径包含这些目录，则忽略不处理
         }
 
@@ -182,15 +182,12 @@ public class VersionManager {
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
 
             // 创建安全的文件名
-            String safeRelativePath = relativePath.replaceAll("[\\\\/:*?\"<>|]", "_");
-            Path versionSubDir = versionDirectory.resolve(safeRelativePath);
+            // 使用时间戳作为父目录
+            Path versionFile = versionDirectory.resolve(timestamp).resolve("snapshot").resolve(relativePath);
 
             // 创建目录结构
-            Files.createDirectories(versionSubDir);
+            Files.createDirectories(versionFile.getParent());
 
-            // 使用时间戳作为文件名
-            String versionFileName = timestamp + ".txt";
-            Path versionFile = versionSubDir.resolve(versionFileName);
 
             // 将文件内容写入到版本文件中
             Files.write(versionFile, content.getBytes(StandardCharsets.UTF_8));
