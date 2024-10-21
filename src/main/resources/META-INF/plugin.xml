@@ -24,22 +24,20 @@
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
-    <depends optional="true">org.slf4j:slf4j-api</depends>
+
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
+        <!-- 注册VersionTrackerService -->
+        <projectService serviceImplementation="edu.tongji.versiontracker.VersionTrackerService" preload="true"/>
         <notificationGroup displayType="BALLOON" id="VersionTrackerGroup"/>
+        <!-- 注册工具窗口 -->
         <toolWindow factoryClass="edu.tongji.versiontracker.VersionTrackerToolWindowFactory" id="Modification History" icon="com.intellij.icons.ExpUiIcons.General.History"/>
-        <projectService serviceImplementation="edu.tongji.versiontracker.VersionTrackerService"/>
     </extensions>
-    <actions>
-        <action id="edu.tongji.versiontracker.ShowProjectNameAction"
-                class="edu.tongji.versiontracker.ShowProjectNameAction" text="show project name with popup dialog">
-            <add-to-group group-id="HelpMenu" anchor="after" relative-to-action="About"/>
-        </action>
-    </actions>
+    <!-- 注册 ProjectCloseListener -->
     <applicationListeners>
-        <listener class="edu.tongji.versiontracker.ProjectListener"
-                  topic="com.intellij.openapi.project.ProjectManagerListener"/>
+        <listener class="edu.tongji.versiontracker.VersionTrackerProjectCloseListener"
+                  topic="com.intellij.openapi.project.ProjectCloseListener"/>
     </applicationListeners>
+
 </idea-plugin>

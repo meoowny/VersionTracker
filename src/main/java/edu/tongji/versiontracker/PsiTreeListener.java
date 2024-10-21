@@ -1,9 +1,9 @@
 package edu.tongji.versiontracker;
 
-import org.jetbrains.annotations.NotNull;
-
-import com.intellij.psi.PsiTreeChangeEvent;
-import com.intellij.psi.PsiTreeChangeListener;
+import com.intellij.psi.*;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.VirtualFile;
+import groovyjarjarantlr4.v4.runtime.misc.NotNull;
 
 /**
  * 文件修改的监听器，用户编辑文件后触发。
@@ -11,95 +11,81 @@ import com.intellij.psi.PsiTreeChangeListener;
  * 以下大多空函数为实现 {@link PsiTreeChangeListener} 接口所必要的
  */
 public class PsiTreeListener implements PsiTreeChangeListener {
-    private final VersionTrackerService service;
 
-    public PsiTreeListener(@NotNull VersionTrackerService service) {
-        this.service = service;
+    private final VersionManager versionManager;
+
+    public PsiTreeListener(VersionManager versionManager) {
+        this.versionManager = versionManager;
+    }
+
+    @Override
+    public void beforeChildAddition(@org.jetbrains.annotations.NotNull PsiTreeChangeEvent event) {
+
+    }
+
+    @Override
+    public void beforeChildRemoval(@org.jetbrains.annotations.NotNull PsiTreeChangeEvent event) {
+
+    }
+
+    @Override
+    public void beforeChildReplacement(@org.jetbrains.annotations.NotNull PsiTreeChangeEvent event) {
+
+    }
+
+    @Override
+    public void beforeChildMovement(@org.jetbrains.annotations.NotNull PsiTreeChangeEvent event) {
+
+    }
+
+    @Override
+    public void beforeChildrenChange(@org.jetbrains.annotations.NotNull PsiTreeChangeEvent event) {
+
+    }
+
+    @Override
+    public void beforePropertyChange(@org.jetbrains.annotations.NotNull PsiTreeChangeEvent event) {
+
     }
 
     @Override
     public void childAdded(@NotNull PsiTreeChangeEvent event) {
-        System.out.println("childAdded");
-        testEvent(event);
-        service.trackChange(event);
+        handleEvent(event);
     }
 
     @Override
     public void childRemoved(@NotNull PsiTreeChangeEvent event) {
-        System.out.println("childRemoved");
-        testEvent(event);
-        service.trackChange(event);
+        handleEvent(event);
     }
 
     @Override
     public void childReplaced(@NotNull PsiTreeChangeEvent event) {
-        System.out.println("childReplaced");
-        testEvent(event);
-        service.trackChange(event);
+        handleEvent(event);
     }
 
     @Override
     public void childrenChanged(@NotNull PsiTreeChangeEvent event) {
-        System.out.println("childrenChanged");
-        testEvent(event);
-        service.trackChange(event);
+        handleEvent(event);
     }
 
     @Override
     public void childMoved(@NotNull PsiTreeChangeEvent event) {
-        System.out.println("childMoved");
-        testEvent(event);
-        service.trackChange(event);
-    }
-
-    @Override
-    public void beforeChildAddition(@NotNull PsiTreeChangeEvent event) {
-    }
-
-    @Override
-    public void beforeChildRemoval(@NotNull PsiTreeChangeEvent event) {
-    }
-
-    @Override
-    public void beforeChildReplacement(@NotNull PsiTreeChangeEvent event) {
-    }
-
-    @Override
-    public void beforeChildMovement(@NotNull PsiTreeChangeEvent event) {
-    }
-
-    @Override
-    public void beforeChildrenChange(@NotNull PsiTreeChangeEvent event) {
-    }
-
-    @Override
-    public void beforePropertyChange(@NotNull PsiTreeChangeEvent event) {
+        handleEvent(event);
     }
 
     @Override
     public void propertyChanged(@NotNull PsiTreeChangeEvent event) {
+        handleEvent(event);
     }
 
-    /**
-     * 调试用的函数，将文件修改信息打印出来方便查看
-     *
-     * @param event
-     */
-    private void testEvent(@NotNull PsiTreeChangeEvent event) {
-        var oldChild = event.getOldChild();
-        System.out.println("Property: " + event.getPropertyName());
-        if (oldChild != null) {
-            System.out.println("Old offset: " + oldChild.getTextOffset());
-            System.out.println("Old child: '" + oldChild.getText() + "'");
-        }
-        var newChild = event.getNewChild();
-        if (newChild != null) {
-            System.out.println("New offset: " + newChild.getTextOffset());
-            System.out.println("New child: '" + newChild.getText() + "'");
-        }
-        var o = event.getFile();
-        if (o != null) {
-//            System.out.println("File: " + o.getText());
+    private void handleEvent(PsiTreeChangeEvent event) {
+        PsiFile psiFile = event.getFile();
+        if (psiFile != null) {
+            VirtualFile file = psiFile.getVirtualFile();
+            if (file != null && !file.isDirectory()) {
+                versionManager.handlePsiEvent(file);
+            }
         }
     }
+
 }
