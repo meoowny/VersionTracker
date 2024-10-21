@@ -172,22 +172,5 @@ public class VersionTrackerToolWindowFactory implements ToolWindowFactory {
             return columnIndex == 3;
         }
 
-        @Override
-        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
-            // 单元格值设置操作，用于查看版本内容
-            if (columnIndex == 3) {
-                VersionManager.VersionInfo info = versionHistory.get(rowIndex);
-                try {
-                    String content = new String(Files.readAllBytes(Paths.get(info.versionFilePath)));
-                    JTextArea textArea = new JTextArea(content);
-                    textArea.setEditable(false);
-                    JScrollPane scrollPane = new JScrollPane(textArea);
-                    JOptionPane.showMessageDialog(null, scrollPane, "Version Content", JOptionPane.PLAIN_MESSAGE);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    JOptionPane.showMessageDialog(null, "Error reading version file", "Error", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        }
     }
 }

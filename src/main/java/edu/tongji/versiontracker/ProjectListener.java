@@ -1,13 +1,32 @@
 package edu.tongji.versiontracker;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectCloseListener;
+import com.intellij.openapi.startup.StartupActivity;
 import com.intellij.openapi.project.ProjectManagerListener;
 import org.jetbrains.annotations.NotNull;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.vfs.VirtualFile;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.io.IOException;
 
-public class ProjectListener implements ProjectManagerListener {
+public class ProjectListener implements StartupActivity.DumbAware, ProjectManagerListener {
     @Override
-    public void projectOpened(@NotNull Project project) {
+    public void runActivity(@NotNull Project project) {
         VersionTrackerService service = project.getService(VersionTrackerService.class);
+        if (service != null) {
+            ApplicationManager.getApplication().runWriteAction(() -> {
+                try {
+                    Path versionDirectory = Paths.get(project.getBasePath(), ".version_tracker");
+                    Files.createDirectories(versionDirectory);
+                    System.out.println("Version directory created at: " + versionDirectory);
+                } catch (IOException e) {
+                    System.err.println("Failed to create version directory: " + e.getMessage());
+                }
+            });
+        }
     }
 
     /**

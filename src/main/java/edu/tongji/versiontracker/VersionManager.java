@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -33,17 +34,17 @@ public class VersionManager {
     private final Project project;
     private final Path versionDirectory;
     private final List<VersionInfo> versionHistory = new ArrayList<>();
-    public final Git git;
+    private final int maxSavedVersions = 10; // 最大保存版本数量
 
     public VersionManager(Project project) throws IOException {
         this.project = project;
-        this.versionDirectory = Paths.get(project.getBasePath(), ".version_tracker");
-        System.out.println("Version directory: " + this.versionDirectory);
-        try {
-            this.git = Git.open(new File(project.getBasePath()));
-        } catch (IOException e) {
-            throw new IOException(e.getMessage());
+        String basePath = project.getBasePath();
+        if (basePath == null) {
+            throw new IllegalStateException("Project base path is not available");
         }
+        this.versionDirectory = Paths.get(basePath, ".version_tracker");
+
+        System.out.println("Version directory: " + this.versionDirectory);
     }
 
     /**
@@ -134,77 +135,75 @@ public class VersionManager {
     }
 
 
-    public List<DiffEntry> getProjectChanges() throws IOException, GitAPIException {
-        if (git == null) {
-            throw new IllegalStateException("Git repository is not initialized");
-        }
-
-        Repository repository = git.getRepository();
-        ObjectReader reader = repository.newObjectReader();
-        CanonicalTreeParser oldTreeIter = new CanonicalTreeParser();
-        ObjectId oldTree = repository.resolve("HEAD^{tree}");
-        if (oldTree == null) {
-            // This might be the initial commit
-            return List.of();
-        }
-        oldTreeIter.reset(reader, oldTree);
-        CanonicalTreeParser newTreeIter = new CanonicalTreeParser();
-        ObjectId newTree = repository.resolve("HEAD^{tree}");
-        newTreeIter.reset(reader, newTree);
-
-        return git.diff()
-                .setNewTree(newTreeIter)
-                .setOldTree(oldTreeIter)
-                .call();
-    }
-
     /**
      * 保存文件版本
-     * <br/>
      * 该方法负责将指定文件的内容保存到版本目录中，并在版本历史中记录该版本的信息
      * 它首先计算文件的相对路径，然后生成包含当前时间戳的安全文件名，最后将内容保存为字节流
      * 此方法确保文件的保存和版本跟踪，便于后续的版本回溯和管理
-     *
-     * @param filePath 待保存文件的完整路径
-     * @param content 文件内容
-     * @throws IOException 如果文件写入过程中发生I/O错误
      */
     private void saveVersion(String filePath, String content, VersionInfo.ChangeType changeType) {
         try {
+            // 获取基础路径
+            String basePath = project.getBasePath();
+            if (basePath == null) {
+                System.err.println("Project base path is not available.");
+                return;
+            }
+
+            // 使用 Path 进行路径标准化和拼接
+            Path basePathPath = Paths.get(FileUtil.toSystemIndependentName(basePath));
+            Path filePathPath = Paths.get(FileUtil.toSystemIndependentName(filePath));
+
             // 获取相对路径
-            String relativePath = FileUtil.getRelativePath(project.getBasePath(), filePath, File.separatorChar);
+            Path relativePath = basePathPath.relativize(filePathPath);
             if (relativePath == null) {
                 System.err.println("Unable to get relative path for: " + filePath);
                 return;
             }
 
+            // 清理相对路径中的非法字符，以防在文件系统中创建时出错
+            String cleanedRelativePath = relativePath.toString().replaceAll("[^a-zA-Z0-9_/\\.\\-]", "_");
+
             // 生成时间戳
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
 
-            // 创建安全的文件名
-            // 使用时间戳作为父目录
-            Path versionFile = versionDirectory.resolve(timestamp).resolve("snapshot").resolve(relativePath);
+            if (changeType == VersionInfo.ChangeType.MODIFY) {
+                // 保存增量
+                Path incrementalPath = versionDirectory.resolve("incremental").resolve(cleanedRelativePath);
+                // 确保创建完整的目录结构
+                Files.createDirectories(incrementalPath.getParent() != null ? incrementalPath.getParent() : incrementalPath);
 
-            // 创建目录结构
-            Files.createDirectories(versionFile.getParent());
+                // 保存增量文件，以时间戳命名
+                Path incrementalFile = incrementalPath.resolveSibling("increment_" + timestamp + ".diff");
+                Files.write(incrementalFile, content.getBytes(StandardCharsets.UTF_8));
 
+                System.out.println("Incremental version saved: " + incrementalFile);
+            } else {
+                // 保存完整版本快照
+                Path snapshotPath = versionDirectory.resolve("snapshot").resolve(timestamp).resolve(cleanedRelativePath);
+                Files.createDirectories(snapshotPath.getParent());
+                Files.write(snapshotPath, content.getBytes(StandardCharsets.UTF_8));
 
-            // 将文件内容写入到版本文件中
-            Files.write(versionFile, content.getBytes(StandardCharsets.UTF_8));
+                // 在版本历史中添加新的版本信息
+                versionHistory.add(new VersionInfo(timestamp, cleanedRelativePath, snapshotPath.toString(), changeType));
 
-            // 在版本历史中添加新的版本信息
-            versionHistory.add(new VersionInfo(timestamp, relativePath, versionFile.toString(), changeType));
+                System.out.println("Snapshot version saved: " + snapshotPath);
+            }
 
-            System.out.println("Saving version for file: " + filePath);
-            System.out.println("Version file path: " + versionFile);
+            // 在保存版本后执行清理与合并逻辑
+            cleanUpOldVersions();
+            mergeAndCleanIncrementals();
+
             System.out.println("Change type: " + changeType);
-
-            System.out.println("Version saved successfully. Total versions: " + versionHistory.size());
+            System.out.println("Total versions: " + versionHistory.size());
         } catch (IOException e) {
             System.err.println("Error saving version for file: " + filePath);
             e.printStackTrace();
         }
     }
+
+
+
 
     /**
      * 获取版本历史记录
@@ -245,6 +244,90 @@ public class VersionManager {
             CREATE,
             MODIFY,
             DELETE,
+        }
+    }
+
+    /**
+     *  版本回溯与恢复
+     *
+     * 增量回溯与完整版本回溯
+     */
+    public void rollbackToIncremental(int incrementalIndex) throws IOException {
+        if (incrementalIndex < 0 || incrementalIndex >= versionHistory.size()) {
+            throw new IllegalArgumentException("Invalid incremental index");
+        }
+        // 获取到增量版本历史
+        VersionInfo targetVersion = versionHistory.get(incrementalIndex);
+        String versionFilePath = targetVersion.versionFilePath;
+        String restoredContent = new String(Files.readAllBytes(Paths.get(versionFilePath)));
+
+        // 在这里实现文件的恢复逻辑，将当前文件替换为指定增量保存状态
+        Path targetFilePath = Paths.get(targetVersion.filePath);
+        Files.write(targetFilePath, restoredContent.getBytes());
+
+        System.out.println("Restored to incremental version at index: " + incrementalIndex);
+    }
+
+    public void rollbackToVersion(int versionIndex) throws IOException {
+        if (versionIndex < 0 || versionIndex >= versionHistory.size()) {
+            throw new IllegalArgumentException("Invalid version index");
+        }
+        // 获取完整版本历史
+        VersionInfo targetVersion = versionHistory.get(versionIndex);
+        String versionFilePath = targetVersion.versionFilePath;
+        String restoredContent = new String(Files.readAllBytes(Paths.get(versionFilePath)));
+
+        // 实现文件恢复，将当前文件替换为指定的完整版本状态
+        Path targetFilePath = Paths.get(targetVersion.filePath);
+        Files.write(targetFilePath, restoredContent.getBytes());
+
+        System.out.println("Restored to complete version at index: " + versionIndex);
+    }
+
+    /**
+     * 版本控制的优化与清理
+     *
+     * 自动清理旧版本和冗余增量数据
+     */
+    public void cleanUpOldVersions() {
+        if (versionHistory.size() <= maxSavedVersions) {
+            return; // 无需清理
+        }
+
+        int versionsToDelete = versionHistory.size() - maxSavedVersions;
+        for (int i = 0; i < versionsToDelete; i++) {
+            VersionInfo versionInfo = versionHistory.get(i);
+            try {
+                // 删除旧的增量或完整版本文件
+                Files.deleteIfExists(Paths.get(versionInfo.versionFilePath));
+                versionHistory.remove(i);
+                System.out.println("Deleted old version: " + versionInfo.versionFilePath);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 在保存完整版本后合并增量并清理
+     */
+    public void mergeAndCleanIncrementals() {
+        List<VersionInfo> toBeDeleted = new ArrayList<>();
+        for (VersionInfo versionInfo : versionHistory) {
+            if (versionInfo.changeType == VersionInfo.ChangeType.MODIFY) {
+                toBeDeleted.add(versionInfo);
+            }
+        }
+
+        // 删除所有已合并的增量数据
+        for (VersionInfo versionInfo : toBeDeleted) {
+            try {
+                Files.deleteIfExists(Paths.get(versionInfo.versionFilePath));
+                versionHistory.remove(versionInfo);
+                System.out.println("Deleted merged incremental version: " + versionInfo.versionFilePath);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
     }
 }
