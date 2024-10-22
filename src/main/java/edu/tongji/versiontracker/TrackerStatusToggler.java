@@ -8,7 +8,6 @@ public class TrackerStatusToggler extends AnAction {
 
     @Override
     public void actionPerformed(AnActionEvent e) {
-        // TODO: insert action logic here
         Project project = e.getProject();
         if (project == null) {
             return;

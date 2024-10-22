@@ -745,11 +745,12 @@ public class VersionManager {
             return;
         }
         try {
+            gitManager.commitChanges("Version saved");
             gitManager.mergeBranch(TRACKER_BRANCH, originBranch);
             isInTrackerBranch = false;
-            System.out.println("Merged to tracker branch");
+            LOG.info("Merged to tracker branch");
         } catch (Exception e) {
-            System.err.println("Failed to merge branch: " + e.getMessage());
+            LOG.error("Failed to merge branch: " + e.getMessage());
         }
     }
 }

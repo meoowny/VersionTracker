@@ -1,5 +1,6 @@
 package edu.tongji.versiontracker;
 
+import com.intellij.openapi.diagnostic.Logger;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.Repository;
@@ -12,6 +13,8 @@ import java.nio.file.Paths;
 
 
 public class GitManager {
+    private static final Logger LOG = Logger.getInstance(VersionManager.class);
+
     private final Repository repository;
     private final Git git;
 
@@ -21,7 +24,7 @@ public class GitManager {
 
         if (!repoPath.toFile().exists()) {
             // 如果仓库不存在，初始化一个新的 Git 仓库
-            System.out.println("Initializing new Git repository at: " + projectPath);
+            LOG.info("Initializing new Git repository at: " + projectPath);
             this.git = Git.init().setDirectory(new File(projectPath)).call();
             this.repository = git.getRepository();
         } else {
@@ -39,7 +42,7 @@ public class GitManager {
             git.branchCreate().setName(branchName).call();
         } catch (GitAPIException e) {
             if (e.getMessage().contains("already exists")) {
-                System.err.println("Branch " + branchName + " already exists");
+                LOG.info("Branch " + branchName + " already exists");
             } else {
                 throw e;
             }
