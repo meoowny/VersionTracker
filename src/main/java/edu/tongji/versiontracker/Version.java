@@ -5,9 +5,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class Version {
-    private int versionNumber;
-    private LocalDateTime timestamp;
-    private Map<String, String> snapshots; // 文件名到文件内容的映射
+    private final int versionNumber;
+    private final LocalDateTime timestamp;
+    private final Map<String, String> snapshots; // 相对路径到文件内容的映射
 
     public Version(int versionNumber) {
         this.versionNumber = versionNumber;
@@ -27,7 +27,7 @@ public class Version {
         return snapshots;
     }
 
-    public void addSnapshot(String fileName, String content) {
-        snapshots.put(fileName, content);
+    public void addSnapshot(String relativePath, String content) {
+        snapshots.put(relativePath, content);
     }
 }

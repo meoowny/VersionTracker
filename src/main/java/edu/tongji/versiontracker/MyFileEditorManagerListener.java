@@ -3,14 +3,14 @@ package edu.tongji.versiontracker;
 import com.intellij.openapi.fileEditor.FileEditorManagerListener;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.sun.istack.NotNull;
+import org.jetbrains.annotations.NotNull;
 
 
 import java.util.List;
 
 /**
  * 文件修改监听器
- * 粒度较粗，用户手动保存后触发
+ * 粒度较粗，用户关闭文件时触发
  */
 
 public class MyFileEditorManagerListener implements FileEditorManagerListener {
@@ -23,6 +23,6 @@ public class MyFileEditorManagerListener implements FileEditorManagerListener {
 
     @Override
     public void fileClosed(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
-        versionManager.saveVersion(List.of(file));
+        versionManager.saveVersion(file);
     }
 }

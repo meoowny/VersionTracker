@@ -29,9 +29,8 @@ public class FileListener implements BulkFileListener {
 
             // 文件保存事件
             if (event.isFromSave()) {
-                versionManager.saveVersion(List.of(file));
+                versionManager.saveVersion(file);
             }
-
         }
     }
 }
