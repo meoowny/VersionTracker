@@ -33,6 +33,7 @@ public class VersionManager {
     private static final Logger LOG = Logger.getInstance(VersionManager.class);
     private static final int INCREMENT_THRESHOLD = 5; // 增量保存次数阈值
     private static final Duration MIN_SAVE_INTERVAL = Duration.ofSeconds(3); // 最小保存间隔
+    private static final String TRACKER_BRANCH = "VersionTracker";
 
     private final Project project;
     private final Path versionTrackerPath; // .version_tracker 目录路径
@@ -43,6 +44,10 @@ public class VersionManager {
     private final Map<String, String> lastIncrementContent; // 文件路径到上次增量保存内容的映射
     private final Map<String, String> latestContent; // 文件路径到最新内容的映射
 
+    private final GitManager gitManager;
+    private String originBranch;
+    private boolean isInTrackerBranch;
+
     // 获取通知组的实例
     private static final NotificationGroup NOTIFICATION_GROUP = NotificationGroupManager.getInstance()
         .getNotificationGroup("VersionTracker Notifications");
@@ -52,9 +57,18 @@ public class VersionManager {
         this.versionTrackerPath = Paths.get(project.getBasePath(), ".version_tracker");
         this.fileVersionNumbers = new HashMap<>();
         this.fileIncrementCounts = new HashMap<>();
+
         this.lastIncrementSaveTime = new HashMap<>();
         this.lastIncrementContent = new HashMap<>();
         this.latestContent = new HashMap<>();
+
+        try {
+            this.gitManager = new GitManager(project.getBasePath());
+            this.isInTrackerBranch = gitManager.getCurrentBranch().equals(TRACKER_BRANCH);
+            this.originBranch = isInTrackerBranch ? "main" : gitManager.getCurrentBranch();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     // 初始化方法，创建 .version_tracker 文件夹
@@ -290,7 +304,6 @@ public class VersionManager {
         }
     }
 
-
     // 保存增量到磁盘
     private void saveIncrementToDisk(Increment increment, VirtualFile file) {
         try {
@@ -363,6 +376,14 @@ public class VersionManager {
         cleanIncrements(filePath, versionNumber);
 
         LOG.info("Full version " + versionNumber + " saved for file: " + filePath);
+
+        if (isInTrackerBranch) {
+            try {
+                gitManager.commitChanges("Version " + versionNumber);
+            } catch (Exception e) {
+                System.err.println("Failed to commit changes for " + filePath);
+            }
+        }
     }
 
     // 获取下一个版本号
@@ -691,6 +712,45 @@ public class VersionManager {
     private void notifyUser(String message) {
         Notification notification = NOTIFICATION_GROUP.createNotification("VersionTracker", message, NotificationType.ERROR);
         Notifications.Bus.notify(notification, project);
+    }
+
+    public void toggleTrackerStatus() {
+        if (isInTrackerBranch) {
+            mergeChanges();
+        } else {
+            initializeBranch();
+        }
+    }
+
+    // 初始化插件分支
+    private void initializeBranch() {
+        if (isInTrackerBranch) {
+            // 已经在插件分支
+            return;
+        }
+        try {
+            // 保存项目原来所在分支，创建并切换至插件分支
+            originBranch = gitManager.getCurrentBranch();
+            gitManager.checkoutBranch(TRACKER_BRANCH);
+            isInTrackerBranch = true;
+            System.out.println("Checked out to tracker branch");
+        } catch (Exception e) {
+            System.err.println("Failed to create branch: " + e.getMessage());
+        }
+    }
+
+    // 合并插件分支上的更改
+    private void mergeChanges() {
+        if (!isInTrackerBranch) {
+            return;
+        }
+        try {
+            gitManager.mergeBranch(TRACKER_BRANCH, originBranch);
+            isInTrackerBranch = false;
+            System.out.println("Merged to tracker branch");
+        } catch (Exception e) {
+            System.err.println("Failed to merge branch: " + e.getMessage());
+        }
     }
 }
 

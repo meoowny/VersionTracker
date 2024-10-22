@@ -33,11 +33,22 @@ public class GitManager {
         }
     }
 
+    // 创建分支，如已有分支则仅打印提示
     public void createBranch(String branchName) throws GitAPIException {
-        git.branchCreate().setName(branchName).call();
+        try {
+            git.branchCreate().setName(branchName).call();
+        } catch (GitAPIException e) {
+            if (e.getMessage().contains("already exists")) {
+                System.err.println("Branch " + branchName + " already exists");
+            } else {
+                throw e;
+            }
+        }
     }
 
+    // 创建并切换分支
     public void checkoutBranch(String branchName) throws GitAPIException {
+        createBranch(branchName);
         git.checkout().setName(branchName).call();
     }
 
@@ -46,13 +57,22 @@ public class GitManager {
         git.commit().setMessage(message).call();
     }
 
-    public void mergeBranch(String sourceBranch) throws GitAPIException, IOException {
-        git.checkout().setName("main").call(); // 切换回主分支
-        git.merge().include(git.getRepository().findRef(sourceBranch)).call();
+    // 合并分支并删除被合并的分支
+    public void mergeBranch(String sourceBranch, String currentBranch) throws GitAPIException, IOException {
+        git.checkout().setName(currentBranch).call(); // 切换回原分支
+        // 压缩合并提交
+        git.merge().setSquash(true).include(git.getRepository().findRef(sourceBranch)).call();
+        commitChanges("New track");
+
+        git.branchDelete().setForce(true).setBranchNames(sourceBranch).call();
     }
 
     public void close() {
         repository.close();
         git.close();
+    }
+
+    public String getCurrentBranch() throws IOException {
+        return repository.getBranch();
     }
 }

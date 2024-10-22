@@ -33,4 +33,7 @@ public final class VersionTrackerService {
         PsiManager.getInstance(project).addPsiTreeChangeListener(new PsiTreeListener(this.versionManager), project);
     }
 
+    public void toggleTrackerStatus() {
+        versionManager.toggleTrackerStatus();
+    }
 }

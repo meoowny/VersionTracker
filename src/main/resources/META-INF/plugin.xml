@@ -16,9 +16,6 @@
     <description><![CDATA[
     A version tracker for programmers.<br>
     Features:<br>
-    <ul>
-        <li>(TODO)</li>
-    </ul>
   ]]></description>
 
     <!-- Product and plugin compatibility requirements.
@@ -41,4 +38,10 @@
                   topic="com.intellij.openapi.project.ProjectCloseListener"/>
     </applicationListeners>
 
+    <actions>
+        <action id="TrackerStatusToggler" class="edu.tongji.versiontracker.TrackerStatusToggler"
+                text="Toggle Tracker Status">
+            <add-to-group group-id="HelpMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>
