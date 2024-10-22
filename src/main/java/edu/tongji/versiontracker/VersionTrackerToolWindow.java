@@ -41,10 +41,13 @@ public class VersionTrackerToolWindow {
         JButton refreshButton = new JButton("Refresh");
         refreshButton.addActionListener(e -> loadVersionList());
 
-        // 将按钮添加到顶部面板
-        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        topPanel.add(refreshButton);
-        mainPanel.add(topPanel, BorderLayout.NORTH);
+        // 将按钮添加到底部面板
+        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        bottomPanel.add(refreshButton);
+
+        // 添加底部面板到主面板的南边
+        mainPanel.add(bottomPanel, BorderLayout.SOUTH);
+
 
         // Load version list
         loadVersionList();
@@ -142,7 +145,7 @@ public class VersionTrackerToolWindow {
     private void showDiffDialog(Version version) {
         VirtualFile currentFile = getCurrentFile();
         if (currentFile == null) {
-            JOptionPane.showMessageDialog(mainPanel, "无法获取当前文件。");
+            JOptionPane.showMessageDialog(mainPanel, "Unable to get the current file.");
             return;
         }
 
@@ -153,7 +156,7 @@ public class VersionTrackerToolWindow {
         String versionContent = version.getSnapshots().get(relativePath);
 
         if (versionContent == null) {
-            JOptionPane.showMessageDialog(mainPanel, "该版本中没有当前文件的记录。");
+            JOptionPane.showMessageDialog(mainPanel, "There is no record of the current file in this version.");
             return;
         }
 
@@ -167,7 +170,7 @@ public class VersionTrackerToolWindow {
         DiffContent content2 = contentFactory.create(newContent);
 
         // 假设 SimpleDiffRequest 需要额外的参数或使用不同的构造方法
-        SimpleDiffRequest request = new SimpleDiffRequest("版本差异 - " + currentFile.getName(), content1, content2, "版本内容", "当前内容");
+        SimpleDiffRequest request = new SimpleDiffRequest("Version DIff - " + currentFile.getName(), content1, content2, "Version Content", "Current Content");
 
         DiffManager.getInstance().showDiff(project, request);
     }
@@ -176,30 +179,30 @@ public class VersionTrackerToolWindow {
     private void rollbackToVersion(Version version) {
         VirtualFile currentFile = getCurrentFile();
         if (currentFile == null) {
-            JOptionPane.showMessageDialog(mainPanel, "无法获取当前文件。");
+            JOptionPane.showMessageDialog(mainPanel, "Unable to get the current file.");
             return;
         }
 
         // Get the relative path of the current file
         String relativePath = versionManager.getRelativePath(currentFile);
         if (relativePath == null) {
-            JOptionPane.showMessageDialog(mainPanel, "无法获取当前文件的相对路径。");
+            JOptionPane.showMessageDialog(mainPanel, "Unable to get the relative path of the current file.");
             return;
         }
 
         String versionContent = version.getSnapshots().get(relativePath);
 
         if (versionContent == null) {
-            JOptionPane.showMessageDialog(mainPanel, "该版本中没有当前文件的记录。");
+            JOptionPane.showMessageDialog(mainPanel, "There is no record of the current file in this version.");
             return;
         }
 
         // Replace the current file content with the version content
         try {
             versionManager.replaceFileContent(currentFile, versionContent);
-            JOptionPane.showMessageDialog(mainPanel, "文件已回溯到版本 " + version.getVersionNumber());
+            JOptionPane.showMessageDialog(mainPanel, "The file has been backported to version " + version.getVersionNumber());
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(mainPanel, "回溯失败：" + e.getMessage());
+            JOptionPane.showMessageDialog(mainPanel, "Rolling back failed:" + e.getMessage());
             e.printStackTrace();
         }
     }

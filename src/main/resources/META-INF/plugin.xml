@@ -28,7 +28,7 @@
         <projectService serviceImplementation="edu.tongji.versiontracker.VersionTrackerService" preload="true"/>
         <notificationGroup displayType="BALLOON" id="VersionTrackerGroup"/>
         <!-- 注册通知组 -->
-        <notificationGroup id="VersionTracker Notifications" displayType="BALLOON" />
+        <notificationGroup id="VersionTracker Notifications" displayType="BALLOON" isLogByDefault="false" />
         <!-- 注册工具窗口 -->
         <toolWindow factoryClass="edu.tongji.versiontracker.VersionTrackerToolWindowFactory" id="Version Tracker" icon="com.intellij.icons.ExpUiIcons.General.History"/>
     </extensions>
@@ -40,8 +40,8 @@
 
     <actions>
         <action id="TrackerStatusToggler" class="edu.tongji.versiontracker.TrackerStatusToggler"
-                text="Toggle Tracker Status">
-            <add-to-group group-id="HelpMenu" anchor="last"/>
+                text="Toggle Tracker Status" icon="com.intellij.icons.ExpUiIcons.FileTypes.Gitignore">
+            <add-to-group group-id="ProjectViewToolbar" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>

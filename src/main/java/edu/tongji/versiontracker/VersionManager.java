@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.ChangeDelta;
 import com.github.difflib.patch.PatchFailedException;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -27,6 +28,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import org.jetbrains.annotations.NotNull;
+
+import static com.intellij.ide.actions.OpenProjectFileChooserDescriptor.isProjectFile;
 
 public class VersionManager {
 
@@ -134,8 +137,16 @@ public class VersionManager {
         }
 
         // 检查是否已有版本存在
-        if (fileVersionNumbers.containsKey(filePath)) {
+        if (fileVersionNumbers.containsKey(filePath) && fileVersionNumbers.get(filePath) >= 1) {
             // 已有版本，跳过初始版本保存
+            return;
+        }
+
+        // 检查版本目录是否存在
+        Path versionDirPath = versionTrackerPath.resolve(filePath).resolve("version_001");
+        if (Files.exists(versionDirPath)) {
+            // 初始版本目录已存在，更新文件版本号
+            fileVersionNumbers.put(filePath, 1);
             return;
         }
 
@@ -184,9 +195,26 @@ public class VersionManager {
         // 获取所有打开的文件
         VirtualFile[] openFiles = FileEditorManager.getInstance(project).getOpenFiles();
         for (VirtualFile file : openFiles) {
-            saveVersion(file);
+            if (!file.isInLocalFileSystem() || !isProjectFile(file)) {
+                continue; // 使用 continue 跳过当前文件，继续下一个
+            }
+
+            String filePath = getRelativePath(file);
+            int versionNumber = fileVersionNumbers.getOrDefault(filePath, 0) + 1; // 当前版本号，如果还没有版本则使用1
+            String versionDirName = "version_" + String.format("%03d", versionNumber);
+            Path incrementPath = versionTrackerPath.resolve(filePath).resolve(versionDirName).resolve("increments");
+
+            // 检查 incrementPath 目录下是否有文件
+            try {
+                if (Files.exists(incrementPath) && Files.list(incrementPath).anyMatch(Files::isRegularFile)) {
+                    saveVersion(file); // 仅当目录中有文件时保存版本
+                }
+            } catch (IOException e) {
+                LOG.error("Failed to check files in increments directory for file: " + filePath, e);
+            }
         }
     }
+
 
     // 增量计数器持久化保存
     private void saveIncrementCounts() {
@@ -342,11 +370,18 @@ public class VersionManager {
         String filePath = getRelativePath(file);
         LocalDateTime now = LocalDateTime.now();
 
+        if (filePath == null) {
+            // 跳过 .version_tracker 目录或无法获取相对路径的文件
+            return;
+        }
+
         // 获取当前版本号
         int versionNumber = getNextVersionNumber(filePath);
 
+        // 创建新版本对象
         Version version = new Version(versionNumber);
 
+        // 获取文件内容
         String content = latestContent.get(filePath);
         if (content == null) {
             content = getFileContent(file);
@@ -376,6 +411,8 @@ public class VersionManager {
         cleanIncrements(filePath, versionNumber);
 
         LOG.info("Full version " + versionNumber + " saved for file: " + filePath);
+        // 显示通知
+        notifyVersionCreated(project, filePath, versionNumber);
 
         if (isInTrackerBranch) {
             try {
@@ -492,41 +529,53 @@ public class VersionManager {
         try {
             String versionDirName = "version_" + String.format("%03d", versionNumber);
             Path versionPath = versionTrackerPath.resolve(filePath).resolve(versionDirName);
-            Path incrementsPath = versionPath.resolve("increments");
+            Path incrementPath = versionPath.resolve("increments");
 
-            // 初始化内容
-            String baseContent = "";
+            if (!Files.exists(incrementPath)) {
+                LOG.warn("No increments found for version " + versionNumber + " of file: " + filePath);
+                return null;
+            }
 
-            // 如果有前一个版本，使用前一个版本的快照作为基准
-            if (versionNumber > 1) {
-                int previousVersionNumber = versionNumber - 1;
-                Version previousVersion = loadVersion(previousVersionNumber, filePath);
-                if (previousVersion != null && previousVersion.getSnapshots().containsKey(filePath)) {
-                    baseContent = previousVersion.getSnapshots().get(filePath);
+            // 读取前一个版本的快照内容
+            int previousVersionNumber = versionNumber - 1;
+            String previousVersionDirName = "version_" + String.format("%03d", previousVersionNumber);
+            Path previousSnapshotPath = versionTrackerPath.resolve(filePath)
+                    .resolve(previousVersionDirName)
+                    .resolve("snapshot")
+                    .resolve(Paths.get(filePath).getFileName());
+
+            if (!Files.exists(previousSnapshotPath)) {
+                LOG.warn("Previous snapshot not found for version " + previousVersionNumber + " of file: " + filePath);
+                return null;
+            }
+
+            String originalContent = Files.readString(previousSnapshotPath, StandardCharsets.UTF_8);
+
+            // 读取并应用所有增量
+            List<Path> incrementFiles = Files.list(incrementPath)
+                    .filter(path -> path.toString().endsWith(".diff"))
+                    .sorted()
+                    .collect(Collectors.toList());
+
+            String patchedContent = originalContent;
+
+            for (Path incrementFile : incrementFiles) {
+                String diffContent = Files.readString(incrementFile, StandardCharsets.UTF_8);
+                patchedContent = applyDiff(patchedContent, diffContent);
+                if (patchedContent == null) {
+                    LOG.error("Failed to apply diff from increment file: " + incrementFile);
+                    return null;
                 }
             }
 
-            // 获取所有增量文件，按时间或名称排序
-            List<Path> incrementFiles = Files.list(incrementsPath)
-                .filter(Files::isRegularFile)
-                .sorted()
-                .collect(Collectors.toList());
+            return patchedContent;
 
-            String currentContent = baseContent;
-
-            // 逐个应用增量文件
-            for (Path incrementFile : incrementFiles) {
-                String diffContent = Files.readString(incrementFile, StandardCharsets.UTF_8);
-                currentContent = applyDiff(currentContent, diffContent);
-            }
-
-            return currentContent;
         } catch (IOException e) {
             LOG.error("Failed to generate snapshot content for file: " + filePath, e);
-            notifyUser("Failed to generate snapshot content for file: " + filePath + " - " + e.getMessage());
             return null;
         }
     }
+
 
     private String applyDiff(String originalContent, String diffContent) {
         try {
@@ -694,15 +743,15 @@ public class VersionManager {
     // 回溯方法
     public void replaceFileContent(VirtualFile file, String newContent) throws IOException {
         if (file.isWritable()) {
-            // Write the new content to the file
-            try {
-                // Convert content to bytes using the file's charset
-                byte[] contentBytes = newContent.getBytes(file.getCharset());
-                file.setBinaryContent(contentBytes);
-            } catch (IOException e) {
-                LOG.error("Failed to replace content for file: " + getRelativePath(file), e);
-                throw e;
-            }
+            ApplicationManager.getApplication().runWriteAction(() -> {
+                try {
+                    // 将内容转换为字节数组，使用文件的字符集
+                    byte[] contentBytes = newContent.getBytes(file.getCharset());
+                    file.setBinaryContent(contentBytes);
+                } catch (IOException e) {
+                    LOG.error("Failed to replace content for file: " + getRelativePath(file), e);
+                }
+            });
         } else {
             throw new IOException("File is not writable: " + getRelativePath(file));
         }
@@ -720,6 +769,17 @@ public class VersionManager {
         } else {
             initializeBranch();
         }
+    }
+
+    public void notifyVersionCreated(Project project, String filePath, int versionNumber) {
+        String title = "New Version";
+        String content = "File " + filePath + " 'version' " + versionNumber + " successfully created.";
+
+        Notification notification = NotificationGroupManager.getInstance()
+            .getNotificationGroup("VersionTracker Notifications")
+            .createNotification(title, content, NotificationType.INFORMATION);
+
+        notification.notify(project);
     }
 
     // 初始化插件分支

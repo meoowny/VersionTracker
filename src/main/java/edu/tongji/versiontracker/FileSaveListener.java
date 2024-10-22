@@ -7,6 +7,8 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
+import static com.intellij.ide.actions.OpenProjectFileChooserDescriptor.isProjectFile;
+
 /**
  * 文件修改监听器
  * 粒度较粗，用户手动保存后触发
@@ -26,10 +28,14 @@ public class FileSaveListener implements BulkFileListener {
             if (file == null || file.isDirectory()) {
                 continue;
             }
+            // 检查文件是否属于项目
+            if (!file.isInLocalFileSystem() || !isProjectFile(file)) {
+                return;
+            }
 
             // 文件保存事件
             if (event.isFromSave()) {
-//                versionManager.saveVersion(file);
+//                versionManager.handleEditEvent(file);
             }
         }
     }
