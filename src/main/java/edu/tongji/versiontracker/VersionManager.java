@@ -1,50 +1,60 @@
 package edu.tongji.versiontracker;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.difflib.UnifiedDiffUtils;
+import com.github.difflib.patch.ChangeDelta;
+import com.github.difflib.patch.PatchFailedException;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.patch.Patch;
-import com.intellij.notification.Notification;
-import com.intellij.notification.NotificationGroup;
-import com.intellij.notification.NotificationGroupManager;
-import com.intellij.notification.NotificationType;
-import com.intellij.notification.Notifications;
+import com.intellij.notification.*;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
+import java.io.*;
 import java.nio.file.*;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
+
+import org.jetbrains.annotations.NotNull;
 
 public class VersionManager {
 
     private static final Logger LOG = Logger.getInstance(VersionManager.class);
-    private static final int INCREMENT_THRESHOLD = 10; // 增量保存次数阈值
-    private static final Duration MIN_SAVE_INTERVAL = Duration.ofSeconds(5); // 最小保存间隔
+    private static final int INCREMENT_THRESHOLD = 5; // 增量保存次数阈值
+    private static final Duration MIN_SAVE_INTERVAL = Duration.ofSeconds(3); // 最小保存间隔
 
     private final Project project;
     private final Path versionTrackerPath; // .version_tracker 目录路径
     private final Map<String, Integer> fileVersionNumbers; // 文件路径到版本号的映射
     private final Map<String, Integer> fileIncrementCounts; // 文件路径到增量计数的映射
-    private final Map<String, List<Increment>> fileIncrements; // 文件路径到增量列表的映射
-    private final Map<String, LocalDateTime> lastSaveTime; // 文件路径到上次保存时间的映射
-    private final Map<String, String> lastFileContents; // 文件路径到上次内容的映射
+
+    private final Map<String, LocalDateTime> lastIncrementSaveTime; // 文件路径到上次增量保存时间的映射
+    private final Map<String, String> lastIncrementContent; // 文件路径到上次增量保存内容的映射
+    private final Map<String, String> latestContent; // 文件路径到最新内容的映射
 
     // 获取通知组的实例
     private static final NotificationGroup NOTIFICATION_GROUP = NotificationGroupManager.getInstance()
         .getNotificationGroup("VersionTracker Notifications");
 
-    public VersionManager(Project project) {
+    public VersionManager(@NotNull Project project) {
         this.project = project;
         this.versionTrackerPath = Paths.get(project.getBasePath(), ".version_tracker");
         this.fileVersionNumbers = new HashMap<>();
         this.fileIncrementCounts = new HashMap<>();
-        this.fileIncrements = new HashMap<>();
-        this.lastSaveTime = new HashMap<>();
-        this.lastFileContents = new HashMap<>();
+        this.lastIncrementSaveTime = new HashMap<>();
+        this.lastIncrementContent = new HashMap<>();
+        this.latestContent = new HashMap<>();
     }
 
     // 初始化方法，创建 .version_tracker 文件夹
@@ -56,55 +66,172 @@ public class VersionManager {
             } else {
                 LOG.info(".version_tracker directory already exists at: " + versionTrackerPath);
             }
+            // 加载增量计数器
+            loadIncrementCounts();
+            // 加载文件版本号
+            loadFileVersionNumbers();
         } catch (IOException e) {
             LOG.error("Failed to create .version_tracker directory", e);
             notifyUser("Failed to create .version_tracker directory: " + e.getMessage());
         }
     }
 
-    // 保存所有打开文件的完整版本（在项目关闭时调用）
+    // 加载文件版本号
+    private void loadFileVersionNumbers() {
+        try {
+            if (!Files.exists(versionTrackerPath)) {
+                return;
+            }
+
+            Files.walk(versionTrackerPath)
+                .filter(Files::isDirectory)
+                .forEach(path -> {
+                    Path relativePath = versionTrackerPath.relativize(path);
+                    String relativePathStr = relativePath.toString().replace("\\", "/");
+                    if (relativePathStr.contains("version_")) {
+                        String filePath = relativePath.getParent().toString().replace("\\", "/");
+                        int versionNum = Integer.parseInt(relativePath.getFileName().toString().substring(8));
+                        int currentMaxVersion = fileVersionNumbers.getOrDefault(filePath, 0);
+                        if (versionNum > currentMaxVersion) {
+                            fileVersionNumbers.put(filePath, versionNum);
+                        }
+                    }
+                });
+        } catch (IOException e) {
+            LOG.error("Failed to load file version numbers", e);
+        }
+    }
+
+    public void saveInitialVersion(VirtualFile file) {
+        String filePath = getRelativePath(file);
+
+        if (filePath == null) {
+            // 跳过 .version_tracker 目录
+            return;
+        }
+
+        // 检查是否已有版本存在
+        if (fileVersionNumbers.containsKey(filePath)) {
+            // 已有版本，跳过初始版本保存
+            return;
+        }
+
+        // 设置初始版本号为1
+        int versionNumber = 1;
+        Version version = new Version(versionNumber);
+
+        String content = getFileContent(file);
+        if (content == null) {
+            LOG.warn("Failed to get content for file: " + filePath + ". Skipping initial version save.");
+            return;
+        }
+
+        // 添加快照
+        version.addSnapshot(filePath, content);
+
+        // 保存版本到磁盘
+        saveVersionToDisk(version, filePath, versionNumber);
+
+        // 更新文件版本号
+        fileVersionNumbers.put(filePath, versionNumber);
+
+        LOG.info("Initial version " + versionNumber + " saved for file: " + filePath);
+    }
+
+    // 加载增量计数器
+    private void loadIncrementCounts() {
+        try {
+            Path incrementCountsPath = versionTrackerPath.resolve("increment_counts.ser");
+            if (Files.exists(incrementCountsPath)) {
+                try (ObjectInputStream ois = new ObjectInputStream(Files.newInputStream(incrementCountsPath))) {
+                    @SuppressWarnings("unchecked") // 抑制未检查的转换警告
+                    Map<String, Integer> savedCounts = (Map<String, Integer>) ois.readObject();
+                    fileIncrementCounts.putAll(savedCounts);
+                }
+            }
+        } catch (IOException | ClassNotFoundException e) {
+            LOG.error("Failed to load increment counts", e);
+        }
+    }
+
     public void saveAllOpenFilesVersion() {
+        // 保存所有文档
+        FileDocumentManager.getInstance().saveAllDocuments();
+
         // 获取所有打开的文件
-        VirtualFile[] openFiles = project.getComponent(com.intellij.openapi.fileEditor.FileEditorManager.class).getOpenFiles();
+        VirtualFile[] openFiles = FileEditorManager.getInstance(project).getOpenFiles();
         for (VirtualFile file : openFiles) {
             saveVersion(file);
         }
     }
 
-    // 处理 PsiTree 事件（文件修改、创建、删除）
-    public void handlePsiEvent(VirtualFile file) {
-        handleEditEvent(file);
+    // 增量计数器持久化保存
+    private void saveIncrementCounts() {
+        try {
+            Path incrementCountsPath = versionTrackerPath.resolve("increment_counts.ser");
+            try (ObjectOutputStream oos = new ObjectOutputStream(Files.newOutputStream(incrementCountsPath))) {
+                oos.writeObject(fileIncrementCounts);
+            }
+        } catch (IOException e) {
+            LOG.error("Failed to save increment counts", e);
+        }
     }
 
     // 处理编辑事件，保存增量
     public void handleEditEvent(VirtualFile file) {
         String filePath = getRelativePath(file);
-        LocalDateTime now = LocalDateTime.now();
 
-        // Skip files in .version_tracker
         if (filePath == null) {
+            // 跳过 .version_tracker 目录
             return;
-        }
-
-        // 检查最小保存间隔
-        if (lastSaveTime.containsKey(filePath)) {
-            Duration duration = Duration.between(lastSaveTime.get(filePath), now);
-            if (duration.compareTo(MIN_SAVE_INTERVAL) < 0) {
-                // 合并增量，不立即保存
-                LOG.info("Minimum save interval not reached for file: " + filePath);
-                return;
-            }
         }
 
         // 获取当前文件内容
         String currentContent = getFileContent(file);
         if (currentContent == null) {
-            LOG.warn("Failed to get content for file: " + filePath);
+            LOG.warn("Failed to get content for file: " + filePath + ". Skipping increment save.");
             return;
         }
 
-        // 获取上一次保存的内容，如果没有，则认为是空字符串
-        String lastContent = lastFileContents.getOrDefault(filePath, "");
+        // 更新最新内容
+        latestContent.put(filePath, currentContent);
+
+        LocalDateTime now = LocalDateTime.now();
+
+        // 检查是否需要保存增量
+        if (lastIncrementSaveTime.containsKey(filePath)) {
+            Duration duration = Duration.between(lastIncrementSaveTime.get(filePath), now);
+            if (duration.compareTo(MIN_SAVE_INTERVAL) >= 0) {
+                // 达到最小保存间隔，保存增量
+                saveIncrement(file);
+                // 更新上次增量保存时间和内容
+                lastIncrementSaveTime.put(filePath, now);
+                lastIncrementContent.put(filePath, currentContent);
+            } else {
+                // 未达到最小保存间隔，暂不保存，等待下次
+                LOG.info("Edit detected for file: " + filePath + ", but minimum save interval not reached.");
+            }
+        } else {
+            // 首次编辑，保存增量
+            saveIncrement(file);
+            // 初始化上次增量保存时间和内容
+            lastIncrementSaveTime.put(filePath, now);
+            lastIncrementContent.put(filePath, currentContent);
+        }
+    }
+
+
+    // 保存增量
+    private void saveIncrement(VirtualFile file) {
+        String filePath = getRelativePath(file);
+
+        if (filePath == null) {
+            // 跳过 .version_tracker 目录
+            return;
+        }
+
+        String currentContent = latestContent.get(filePath);
+        String lastContent = lastIncrementContent.getOrDefault(filePath, "");
 
         // 计算差异
         List<String> originalLines = Arrays.asList(lastContent.split("\n"));
@@ -129,83 +256,40 @@ public class VersionManager {
         // 将差异行合并为一个字符串
         String diffContent = String.join("\n", diffLines);
 
-        // 创建增量
+        // 创建增量对象
         Increment increment = new Increment(filePath, diffContent, "修改");
 
-        // 添加到增量列表
-        fileIncrements.computeIfAbsent(filePath, k -> new ArrayList<>()).add(increment);
+        // 保存增量文件
+        saveIncrementToDisk(increment, file);
 
-        // 更新上次保存时间和内容
-        lastSaveTime.put(filePath, now);
-        lastFileContents.put(filePath, currentContent);
-
-        // 更新增量计数
+        // 更新增量计数器
         int incrementCount = fileIncrementCounts.getOrDefault(filePath, 0) + 1;
         fileIncrementCounts.put(filePath, incrementCount);
 
+        // 保存增量计数器
+        saveIncrementCounts();
+
         LOG.info("Increment saved for file: " + filePath + " (Count: " + incrementCount + ")");
 
-        // 检查增量数量是否达到阈值
+        // 检查增量计数器是否达到阈值
         if (incrementCount >= INCREMENT_THRESHOLD) {
-            LOG.info("Increment threshold reached for file: " + filePath + ". Saving full version.");
+            // 保存完整版本
             saveVersion(file);
-        } else {
-            // 保存增量到文件
-            saveIncrement(increment, file);
+            // 重置增量计数器
+            fileIncrementCounts.put(filePath, 0);
+            saveIncrementCounts();
         }
     }
 
-    // 保存完整版本
-    public void saveVersion(VirtualFile file) {
-        String filePath = getRelativePath(file);
-        LocalDateTime now = LocalDateTime.now();
-
-        // 更新文件版本号
-        int versionNumber = fileVersionNumbers.getOrDefault(filePath, 0) + 1;
-        fileVersionNumbers.put(filePath, versionNumber);
-
-        Version version = new Version(versionNumber);
-
-        String content = getFileContent(file);
-        if (content == null) {
-            LOG.warn("Failed to get content for file: " + filePath + ". Skipping version save.");
-            return;
-        }
-
-        // 添加快照
-        version.addSnapshot(filePath, content);
-
-        // 清理增量列表
-        fileIncrements.put(filePath, new ArrayList<>());
-
-        // 重置增量计数
-        fileIncrementCounts.put(filePath, 0);
-
-        // 更新上次内容
-        lastFileContents.put(filePath, content);
-
-        // 清理增量文件
-        cleanIncrements(filePath, versionNumber);
-
-        // 保存版本到磁盘
-        saveVersionToDisk(version, filePath, versionNumber);
-
-        LOG.info("Full version " + versionNumber + " saved for file: " + filePath);
-    }
 
     // 保存增量到磁盘
-    private void saveIncrement(Increment increment, VirtualFile file) {
+    private void saveIncrementToDisk(Increment increment, VirtualFile file) {
         try {
             String filePath = getRelativePath(file);
-            int versionNumber = fileVersionNumbers.getOrDefault(filePath, 1);
-
-            if (versionNumber == 0) {
-                versionNumber = 1;
-                fileVersionNumbers.put(filePath, versionNumber);
-            }
+            int versionNumber = fileVersionNumbers.getOrDefault(filePath, 0) + 1; // 当前版本号，如果还没有版本则使用1
 
             String versionDirName = "version_" + String.format("%03d", versionNumber);
-            Path incrementPath = versionTrackerPath.resolve(filePath).resolve(versionDirName).resolve("increment");
+            Path incrementPath = versionTrackerPath.resolve(filePath).resolve(versionDirName).resolve("increments");
             if (!Files.exists(incrementPath)) {
                 Files.createDirectories(incrementPath);
             }
@@ -231,6 +315,83 @@ public class VersionManager {
         }
     }
 
+    // 保存完整版本
+    public void saveVersion(VirtualFile file) {
+        String filePath = getRelativePath(file);
+        LocalDateTime now = LocalDateTime.now();
+
+        // 获取当前版本号
+        int versionNumber = getNextVersionNumber(filePath);
+
+        Version version = new Version(versionNumber);
+
+        String content = latestContent.get(filePath);
+        if (content == null) {
+            content = getFileContent(file);
+            if (content == null) {
+                LOG.warn("Failed to get content for file: " + filePath + ". Skipping version save.");
+                return;
+            }
+        }
+
+        // 添加快照
+        version.addSnapshot(filePath, content);
+
+        // 保存版本到磁盘
+        saveVersionToDisk(version, filePath, versionNumber);
+
+        // 更新文件版本号
+        fileVersionNumbers.put(filePath, versionNumber);
+
+        // 重置增量计数
+        fileIncrementCounts.put(filePath, 0);
+
+        // 更新上次增量内容
+        lastIncrementContent.put(filePath, content);
+        lastIncrementSaveTime.put(filePath, now);
+
+        // 清理增量文件
+        cleanIncrements(filePath, versionNumber);
+
+        LOG.info("Full version " + versionNumber + " saved for file: " + filePath);
+    }
+
+    // 获取下一个版本号
+    private int getNextVersionNumber(String filePath) {
+        // 检查已有版本号
+        if (fileVersionNumbers.containsKey(filePath)) {
+            return fileVersionNumbers.get(filePath) + 1;
+        } else {
+            // 如果没有记录，扫描版本目录获取最大版本号
+            int maxVersionNumber = getMaxVersionNumber(filePath);
+            return maxVersionNumber + 1;
+        }
+    }
+
+    private int getMaxVersionNumber(String filePath) {
+        Path fileVersionPath = versionTrackerPath.resolve(filePath);
+        if (!Files.exists(fileVersionPath)) {
+            return 0;
+        }
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(fileVersionPath, "version_*")) {
+            int maxVersion = 0;
+            for (Path path : stream) {
+                String dirName = path.getFileName().toString();
+                if (dirName.startsWith("version_")) {
+                    int versionNum = Integer.parseInt(dirName.substring(8));
+                    if (versionNum > maxVersion) {
+                        maxVersion = versionNum;
+                    }
+                }
+            }
+            return maxVersion;
+        } catch (IOException e) {
+            LOG.error("Failed to get max version number for file: " + filePath, e);
+            return 0;
+        }
+    }
+
     // 保存版本到磁盘
     private void saveVersionToDisk(Version version, String filePath, int versionNumber) {
         try {
@@ -239,25 +400,123 @@ public class VersionManager {
 
             // 创建 snapshot 目录
             Path snapshotPath = versionPath.resolve("snapshot");
-            Files.createDirectories(snapshotPath);
+            if (!Files.exists(snapshotPath)) {
+                Files.createDirectories(snapshotPath);
+            }
 
-            // 解析文件的相对路径，确保目录结构
-            Path relativePath = Paths.get(filePath);
-            Path fileName = relativePath.getFileName();
+            String snapshotContent;
+
+            if (versionNumber == 1) {
+                // 对于初始版本，直接使用当前内容作为快照内容
+                snapshotContent = version.getSnapshots().get(filePath);
+                if (snapshotContent == null) {
+                    LOG.error("No snapshot content available for initial version of file: " + filePath);
+                    notifyUser("No snapshot content available for initial version of file: " + filePath);
+                    return;
+                }
+            } else {
+                // 对于后续版本，通过合并增量文件生成快照内容
+                snapshotContent = generateSnapshotContent(filePath, versionNumber);
+                if (snapshotContent == null) {
+                    LOG.error("Failed to generate snapshot content for file: " + filePath);
+                    notifyUser("Failed to generate snapshot content for file: " + filePath);
+                    return;
+                }
+            }
 
             // 构建快照文件路径
-            Path fileSavePath = snapshotPath.resolve(fileName);
+            Path fileSavePath = snapshotPath.resolve(Paths.get(filePath).getFileName());
 
             // 确保父目录存在
             Files.createDirectories(fileSavePath.getParent());
 
             // 写入快照内容
-            Files.write(fileSavePath, version.getSnapshots().get(filePath).getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.write(fileSavePath, snapshotContent.getBytes(StandardCharsets.UTF_8),
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
             LOG.info("Snapshot saved at: " + fileSavePath.toString());
+
+            // 保存元数据
+            Path metadataPath = versionPath.resolve("metadata.ser");
+            version.setSnapshots(null); // 为了节省空间，可以在序列化前清空快照内容
+            saveVersionMetadata(version, metadataPath);
+
+            LOG.info("Metadata saved at: " + metadataPath.toString());
+
         } catch (IOException e) {
             LOG.error("Failed to save version to disk for file: " + filePath, e);
             notifyUser("Failed to save version for file: " + filePath + " - " + e.getMessage());
+        }
+    }
+
+
+    // 保存元数据
+    private void saveVersionMetadata(Version version, Path metadataPath) throws IOException {
+        try (ObjectOutputStream oos = new ObjectOutputStream(Files.newOutputStream(metadataPath))) {
+            oos.writeObject(version);
+        }
+    }
+
+    // 合成增量为版本
+    private String generateSnapshotContent(String filePath, int versionNumber) {
+        try {
+            String versionDirName = "version_" + String.format("%03d", versionNumber);
+            Path versionPath = versionTrackerPath.resolve(filePath).resolve(versionDirName);
+            Path incrementsPath = versionPath.resolve("increments");
+
+            // 初始化内容
+            String baseContent = "";
+
+            // 如果有前一个版本，使用前一个版本的快照作为基准
+            if (versionNumber > 1) {
+                int previousVersionNumber = versionNumber - 1;
+                Version previousVersion = loadVersion(previousVersionNumber, filePath);
+                if (previousVersion != null && previousVersion.getSnapshots().containsKey(filePath)) {
+                    baseContent = previousVersion.getSnapshots().get(filePath);
+                }
+            }
+
+            // 获取所有增量文件，按时间或名称排序
+            List<Path> incrementFiles = Files.list(incrementsPath)
+                .filter(Files::isRegularFile)
+                .sorted()
+                .collect(Collectors.toList());
+
+            String currentContent = baseContent;
+
+            // 逐个应用增量文件
+            for (Path incrementFile : incrementFiles) {
+                String diffContent = Files.readString(incrementFile, StandardCharsets.UTF_8);
+                currentContent = applyDiff(currentContent, diffContent);
+            }
+
+            return currentContent;
+        } catch (IOException e) {
+            LOG.error("Failed to generate snapshot content for file: " + filePath, e);
+            notifyUser("Failed to generate snapshot content for file: " + filePath + " - " + e.getMessage());
+            return null;
+        }
+    }
+
+    private String applyDiff(String originalContent, String diffContent) {
+        try {
+            // 将原始内容按行拆分
+            List<String> originalLines = Arrays.asList(originalContent.split("\n"));
+
+            // 将 diff 内容按行拆分
+            List<String> diffLines = Arrays.asList(diffContent.split("\n"));
+
+            // 解析统一格式的 diff，生成补丁
+            Patch<String> patch = UnifiedDiffUtils.parseUnifiedDiff(diffLines);
+
+            // 应用补丁到原始内容
+            List<String> patchedLines = DiffUtils.patch(originalLines, patch);
+
+            // 将结果合并为一个字符串
+            return String.join("\n", patchedLines);
+        } catch (PatchFailedException e) {
+            LOG.error("Failed to apply diff", e);
+            return originalContent; // 如果应用失败，返回原始内容
         }
     }
 
@@ -265,7 +524,7 @@ public class VersionManager {
     private void cleanIncrements(String filePath, int versionNumber) {
         try {
             String versionDirName = "version_" + String.format("%03d", versionNumber);
-            Path incrementPath = versionTrackerPath.resolve(filePath).resolve(versionDirName).resolve("increment");
+            Path incrementPath = versionTrackerPath.resolve(filePath).resolve(versionDirName).resolve("increments");
             if (Files.exists(incrementPath)) {
                 Files.walk(incrementPath)
                     .filter(Files::isRegularFile)
@@ -284,6 +543,33 @@ public class VersionManager {
         }
     }
 
+    // 获取文件内容
+    String getFileContent(VirtualFile file) {
+        try {
+            return new String(file.contentsToByteArray(), file.getCharset());
+        } catch (IOException e) {
+            LOG.error("Failed to get content for file: " + getRelativePath(file), e);
+            notifyUser("Failed to get content for file: " + getRelativePath(file) + " - " + e.getMessage());
+            return null;
+        }
+    }
+
+    // 获取文件相对于项目的路径
+    private String getRelativePath(VirtualFile file) {
+        String projectPath = project.getBasePath();
+        String filePath = file.getPath();
+
+        // 忽略 .version_tracker 目录
+        if (filePath.contains("/.version_tracker/") || filePath.endsWith("/.version_tracker")) {
+            return null;
+        }
+
+        if (filePath.startsWith(projectPath)) {
+            return filePath.substring(projectPath.length() + 1).replace("\\", "/");
+        } else {
+            return file.getName();
+        }
+    }
     // 获取所有版本列表
     public List<Version> getAllVersions() {
         List<Version> versions = new ArrayList<>();
@@ -309,64 +595,44 @@ public class VersionManager {
         return versions;
     }
 
-    // 加载指定版本
+    // 加载元数据
+    private Version loadVersionMetadata(Path metadataPath) throws IOException, ClassNotFoundException {
+        try (ObjectInputStream ois = new ObjectInputStream(Files.newInputStream(metadataPath))) {
+            return (Version) ois.readObject();
+        }
+    }
+
+
     private Version loadVersion(int versionNumber, String filePath) {
         String versionDirName = "version_" + String.format("%03d", versionNumber);
         Path versionPath = versionTrackerPath.resolve(filePath).resolve(versionDirName);
         Path snapshotPath = versionPath.resolve("snapshot");
+        Path metadataPath = versionPath.resolve("metadata.ser");
 
-        Version version = new Version(versionNumber);
+        if (!Files.exists(metadataPath)) {
+            LOG.warn("Metadata file does not exist for version: " + versionNumber + " of file: " + filePath);
+            return null; // 或者根据需要创建一个默认的 Version 对象
+        }
 
         try {
-            if (Files.exists(snapshotPath)) {
-                Files.walk(snapshotPath)
-                    .filter(Files::isRegularFile)
-                    .forEach(snapshotFile -> {
-                        try {
-                            String relativeSnapshotPath = versionTrackerPath.relativize(snapshotFile).toString().replace("\\", "/");
-                            String content = Files.readString(snapshotFile, StandardCharsets.UTF_8);
-                            version.addSnapshot(filePath, content);
-                        } catch (IOException e) {
-                            LOG.error("Failed to read snapshot file: " + snapshotFile.toString(), e);
-                        }
-                    });
+            // 反序列化版本元数据
+            Version version = loadVersionMetadata(metadataPath);
+
+            // 读取快照内容
+            Path fileSavePath = snapshotPath.resolve(Paths.get(filePath).getFileName());
+            if (Files.exists(fileSavePath)) {
+                String snapshotContent = Files.readString(fileSavePath, StandardCharsets.UTF_8);
+                version.addSnapshot(filePath, snapshotContent);
             }
-        } catch (IOException e) {
+
+            return version;
+        } catch (IOException | ClassNotFoundException e) {
             LOG.error("Failed to load version for file: " + filePath, e);
             notifyUser("Failed to load version for file: " + filePath + " - " + e.getMessage());
             return null;
         }
-
-        return version;
     }
 
-    // 获取文件内容
-    String getFileContent(VirtualFile file) {
-        try {
-            return new String(file.contentsToByteArray(), file.getCharset());
-        } catch (IOException e) {
-            LOG.error("Failed to get content for file: " + getRelativePath(file), e);
-            notifyUser("Failed to get content for file: " + getRelativePath(file) + " - " + e.getMessage());
-            return null;
-        }
-    }
-
-    // 获取文件相对于项目的路径
-    private String getRelativePath(VirtualFile file) {
-        String projectPath = project.getBasePath();
-        String filePath = file.getPath();
-
-        // Exclude .version_tracker directory
-        if (filePath.contains("/.version_tracker/") || filePath.endsWith("/.version_tracker")) {
-            return null; // or handle accordingly
-        }
-
-        if (filePath.startsWith(projectPath)) {
-            return filePath.substring(projectPath.length() + 1).replace("\\", "/");
-        } else {
-            return file.getName();
-        }
-    }
 
 
     // 通知用户
@@ -375,3 +641,4 @@ public class VersionManager {
         Notifications.Bus.notify(notification, project);
     }
 }
+

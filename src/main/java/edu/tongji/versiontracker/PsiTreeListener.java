@@ -83,7 +83,7 @@ public class PsiTreeListener implements PsiTreeChangeListener {
         if (psiFile != null) {
             VirtualFile file = psiFile.getVirtualFile();
             if (file != null && !file.isDirectory()) {
-                versionManager.handlePsiEvent(file);
+                versionManager.handleEditEvent(file);
             }
         }
     }

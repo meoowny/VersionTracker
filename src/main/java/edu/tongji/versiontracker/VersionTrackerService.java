@@ -1,6 +1,5 @@
 package edu.tongji.versiontracker;
 
-import com.intellij.openapi.components.Service;
 import com.intellij.openapi.fileEditor.FileEditorManagerListener;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFileManager;
@@ -24,10 +23,14 @@ public final class VersionTrackerService {
         MessageBusConnection connection = project.getMessageBus().connect();
         connection.subscribe(VirtualFileManager.VFS_CHANGES, new FileListener(this.versionManager));
 
+        // 注册 FileOpenListener
+        connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, new FileOpenListener(versionManager));
+
         // 注册 FileEditorManagerListener
         connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, new MyFileEditorManagerListener(this.versionManager));
 
         // 注册 PsiTreeListener
         PsiManager.getInstance(project).addPsiTreeChangeListener(new PsiTreeListener(this.versionManager), project);
     }
+
 }
