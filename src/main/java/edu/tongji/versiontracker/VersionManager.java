@@ -88,12 +88,20 @@ public class VersionManager {
                 .forEach(path -> {
                     Path relativePath = versionTrackerPath.relativize(path);
                     String relativePathStr = relativePath.toString().replace("\\", "/");
-                    if (relativePathStr.contains("version_")) {
-                        String filePath = relativePath.getParent().toString().replace("\\", "/");
-                        int versionNum = Integer.parseInt(relativePath.getFileName().toString().substring(8));
-                        int currentMaxVersion = fileVersionNumbers.getOrDefault(filePath, 0);
-                        if (versionNum > currentMaxVersion) {
-                            fileVersionNumbers.put(filePath, versionNum);
+                    if (relativePathStr.startsWith("version_")) {
+                        try {
+                            String versionStr = relativePathStr.substring("version_".length());
+                            // 检查是否有足够的字符用于提取版本号
+                            if (!versionStr.isEmpty()) {
+                                int versionNum = Integer.parseInt(versionStr);
+                                String filePath = relativePath.getParent().toString().replace("\\", "/");
+                                int currentMaxVersion = fileVersionNumbers.getOrDefault(filePath, 0);
+                                if (versionNum > currentMaxVersion) {
+                                    fileVersionNumbers.put(filePath, versionNum);
+                                }
+                            }
+                        } catch (NumberFormatException e) {
+                            LOG.error("Error parsing version number from path: " + relativePathStr, e);
                         }
                     }
                 });
@@ -101,6 +109,7 @@ public class VersionManager {
             LOG.error("Failed to load file version numbers", e);
         }
     }
+
 
     public void saveInitialVersion(VirtualFile file) {
         String filePath = getRelativePath(file);
@@ -555,7 +564,7 @@ public class VersionManager {
     }
 
     // 获取文件相对于项目的路径
-    private String getRelativePath(VirtualFile file) {
+    String getRelativePath(VirtualFile file) {
         String projectPath = project.getBasePath();
         String filePath = file.getPath();
 
@@ -633,7 +642,50 @@ public class VersionManager {
         }
     }
 
+    // 检索特定文件的版本
+    public List<Version> getVersionsForFile(String relativeFilePath) {
+        List<Version> versions = new ArrayList<>();
 
+        Path fileVersionPath = versionTrackerPath.resolve(relativeFilePath);
+        if (!Files.exists(fileVersionPath)) {
+            return versions;
+        }
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(fileVersionPath, "version_*")) {
+            for (Path versionDir : stream) {
+                String dirName = versionDir.getFileName().toString();
+                if (dirName.startsWith("version_")) {
+                    int versionNum = Integer.parseInt(dirName.substring(8));
+                    Version version = loadVersion(versionNum, relativeFilePath);
+                    if (version != null) {
+                        versions.add(version);
+                    }
+                }
+            }
+            // Sort versions by version number
+            versions.sort(Comparator.comparingInt(Version::getVersionNumber));
+        } catch (IOException e) {
+            LOG.error("Failed to get versions for file: " + relativeFilePath, e);
+        }
+        return versions;
+    }
+
+    // 回溯方法
+    public void replaceFileContent(VirtualFile file, String newContent) throws IOException {
+        if (file.isWritable()) {
+            // Write the new content to the file
+            try {
+                // Convert content to bytes using the file's charset
+                byte[] contentBytes = newContent.getBytes(file.getCharset());
+                file.setBinaryContent(contentBytes);
+            } catch (IOException e) {
+                LOG.error("Failed to replace content for file: " + getRelativePath(file), e);
+                throw e;
+            }
+        } else {
+            throw new IOException("File is not writable: " + getRelativePath(file));
+        }
+    }
 
     // 通知用户
     private void notifyUser(String message) {

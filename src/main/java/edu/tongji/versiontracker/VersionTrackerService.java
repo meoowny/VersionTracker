@@ -21,13 +21,13 @@ public final class VersionTrackerService {
     void registerListeners(VersionManager versionManager) {
         // 注册 FileListener
         MessageBusConnection connection = project.getMessageBus().connect();
-        connection.subscribe(VirtualFileManager.VFS_CHANGES, new FileListener(this.versionManager));
+        connection.subscribe(VirtualFileManager.VFS_CHANGES, new FileSaveListener(this.versionManager));
 
         // 注册 FileOpenListener
         connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, new FileOpenListener(versionManager));
 
         // 注册 FileEditorManagerListener
-        connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, new MyFileEditorManagerListener(this.versionManager));
+        connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, new FileCloseListener(this.versionManager));
 
         // 注册 PsiTreeListener
         PsiManager.getInstance(project).addPsiTreeChangeListener(new PsiTreeListener(this.versionManager), project);

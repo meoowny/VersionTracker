@@ -5,24 +5,23 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
-
-import java.util.List;
-
 /**
  * 文件修改监听器
  * 粒度较粗，用户关闭文件时触发
  */
 
-public class MyFileEditorManagerListener implements FileEditorManagerListener {
+public class FileCloseListener implements FileEditorManagerListener {
 
     private final VersionManager versionManager;
 
-    public MyFileEditorManagerListener(VersionManager versionManager) {
+    public FileCloseListener(VersionManager versionManager) {
         this.versionManager = versionManager;
     }
 
+    // 关闭文件
     @Override
     public void fileClosed(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
-        versionManager.saveVersion(file);
+//        versionManager.saveVersion(file);
     }
+
 }

@@ -1,11 +1,19 @@
 package edu.tongji.versiontracker;
 
+import com.intellij.diff.DiffContentFactory;
+import com.intellij.diff.DiffManager;
+import com.intellij.diff.contents.DiffContent;
+import com.intellij.diff.requests.SimpleDiffRequest;
 import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.fileEditor.FileEditorManagerEvent;
+import com.intellij.openapi.fileEditor.FileEditorManagerListener;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
+import java.io.IOException;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
@@ -29,23 +37,49 @@ public class VersionTrackerToolWindow {
         JScrollPane scrollPane = new JScrollPane(versionListPanel);
         mainPanel.add(scrollPane, BorderLayout.CENTER);
 
+        // 添加刷新按钮
+        JButton refreshButton = new JButton("Refresh");
+        refreshButton.addActionListener(e -> loadVersionList());
+
+        // 将按钮添加到顶部面板
+        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        topPanel.add(refreshButton);
+        mainPanel.add(topPanel, BorderLayout.NORTH);
+
         // Load version list
         loadVersionList();
+
+        // Subscribe to file selection changes
+        project.getMessageBus().connect().subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, new FileSelectionListener(this));
     }
+
 
     // Get content
     public JPanel getContent() {
         return mainPanel;
     }
 
-    private void loadVersionList() {
-        List<Version> versions = versionManager.getAllVersions();
+    public void loadVersionList() {
+        VirtualFile currentFile = getCurrentFile();
         versionListPanel.removeAll();
 
-        for (Version version : versions) {
-            VersionItem versionItem = new VersionItem(version);
-            JPanel versionPanel = createVersionPanel(versionItem);
-            versionListPanel.add(versionPanel);
+        if (currentFile == null) {
+            JLabel noFileLabel = new JLabel("No file selected.");
+            versionListPanel.add(noFileLabel);
+        } else {
+            String relativePath = versionManager.getRelativePath(currentFile);
+            List<Version> versions = versionManager.getVersionsForFile(relativePath);
+
+            if (versions.isEmpty()) {
+                JLabel noVersionsLabel = new JLabel("No versions available for this file.");
+                versionListPanel.add(noVersionsLabel);
+            } else {
+                for (Version version : versions) {
+                    VersionItem versionItem = new VersionItem(version);
+                    JPanel versionPanel = createVersionPanel(versionItem);
+                    versionListPanel.add(versionPanel);
+                }
+            }
         }
 
         // Refresh the panel
@@ -55,17 +89,28 @@ public class VersionTrackerToolWindow {
 
     private JPanel createVersionPanel(VersionItem versionItem) {
         JPanel panel = new JPanel(new BorderLayout());
-        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40)); // Increase width
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60)); // Adjust height
 
         JLabel versionLabel = new JLabel(versionItem.toString());
-        JButton rollbackButton = new JButton("回溯");
+        versionLabel.setVerticalAlignment(SwingConstants.TOP);
 
-        rollbackButton.addActionListener(e -> {
+        JButton diffButton = new JButton("View Diff");
+        JButton rollbackButton = new JButton("Rollback");
+
+        diffButton.addActionListener(e -> {
             showDiffDialog(versionItem.getVersion());
         });
 
+        rollbackButton.addActionListener(e -> {
+            rollbackToVersion(versionItem.getVersion());
+        });
+
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.add(diffButton);
+        buttonPanel.add(rollbackButton);
+
         panel.add(versionLabel, BorderLayout.CENTER);
-        panel.add(rollbackButton, BorderLayout.EAST);
+        panel.add(buttonPanel, BorderLayout.EAST);
 
         // Add border for better visibility (optional)
         panel.setBorder(BorderFactory.createLineBorder(Color.GRAY));
@@ -89,7 +134,7 @@ public class VersionTrackerToolWindow {
         public String toString() {
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
             String formattedTimestamp = version.getTimestamp().format(formatter);
-            return "Version " + version.getVersionNumber() + " - " + formattedTimestamp;
+            return "<html>Version " + version.getVersionNumber() + "<br>" + "<br>" + formattedTimestamp + "</html>";
         }
     }
 
@@ -102,15 +147,61 @@ public class VersionTrackerToolWindow {
         }
 
         String currentContent = versionManager.getFileContent(currentFile);
-        String versionContent = version.getSnapshots().get(currentFile.getName());
+
+        // 获取要比较的版本内容
+        String relativePath = versionManager.getRelativePath(currentFile);
+        String versionContent = version.getSnapshots().get(relativePath);
 
         if (versionContent == null) {
             JOptionPane.showMessageDialog(mainPanel, "该版本中没有当前文件的记录。");
             return;
         }
 
-        // Use Diff tool to show difference
-        DiffWindow.showDiff(project, currentFile.getName(), versionContent, currentContent);
+        // 使用 IntelliJ 的 Diff 工具显示差异
+        showDiffInIdea(project, currentFile, versionContent, currentContent);
+    }
+
+    private void showDiffInIdea(Project project, VirtualFile currentFile, String oldContent, String newContent) {
+        DiffContentFactory contentFactory = DiffContentFactory.getInstance();
+        DiffContent content1 = contentFactory.create(oldContent);
+        DiffContent content2 = contentFactory.create(newContent);
+
+        // 假设 SimpleDiffRequest 需要额外的参数或使用不同的构造方法
+        SimpleDiffRequest request = new SimpleDiffRequest("版本差异 - " + currentFile.getName(), content1, content2, "版本内容", "当前内容");
+
+        DiffManager.getInstance().showDiff(project, request);
+    }
+
+    // Rollback to selected version
+    private void rollbackToVersion(Version version) {
+        VirtualFile currentFile = getCurrentFile();
+        if (currentFile == null) {
+            JOptionPane.showMessageDialog(mainPanel, "无法获取当前文件。");
+            return;
+        }
+
+        // Get the relative path of the current file
+        String relativePath = versionManager.getRelativePath(currentFile);
+        if (relativePath == null) {
+            JOptionPane.showMessageDialog(mainPanel, "无法获取当前文件的相对路径。");
+            return;
+        }
+
+        String versionContent = version.getSnapshots().get(relativePath);
+
+        if (versionContent == null) {
+            JOptionPane.showMessageDialog(mainPanel, "该版本中没有当前文件的记录。");
+            return;
+        }
+
+        // Replace the current file content with the version content
+        try {
+            versionManager.replaceFileContent(currentFile, versionContent);
+            JOptionPane.showMessageDialog(mainPanel, "文件已回溯到版本 " + version.getVersionNumber());
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(mainPanel, "回溯失败：" + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     // Get current file
@@ -122,4 +213,5 @@ public class VersionTrackerToolWindow {
             return null;
         }
     }
+
 }

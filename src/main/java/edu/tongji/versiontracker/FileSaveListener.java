@@ -11,11 +11,11 @@ import java.util.List;
  * 文件修改监听器
  * 粒度较粗，用户手动保存后触发
  */
-public class FileListener implements BulkFileListener {
+public class FileSaveListener implements BulkFileListener {
 
     private final VersionManager versionManager;
 
-    public FileListener(VersionManager versionManager) {
+    public FileSaveListener(VersionManager versionManager) {
         this.versionManager = versionManager;
     }
 
@@ -29,7 +29,7 @@ public class FileListener implements BulkFileListener {
 
             // 文件保存事件
             if (event.isFromSave()) {
-                versionManager.saveVersion(file);
+//                versionManager.saveVersion(file);
             }
         }
     }
