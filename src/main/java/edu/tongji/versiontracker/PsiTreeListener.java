@@ -50,7 +50,7 @@ public class PsiTreeListener implements PsiTreeChangeListener {
 
     @Override
     public void childAdded(@NotNull PsiTreeChangeEvent event) {
-        handleEvent(event);
+        handleFileCreation(event);
     }
 
     @Override
@@ -84,6 +84,16 @@ public class PsiTreeListener implements PsiTreeChangeListener {
             VirtualFile file = psiFile.getVirtualFile();
             if (file != null && !file.isDirectory()) {
                 versionManager.handleEditEvent(file);
+            }
+        }
+    }
+
+    private void handleFileCreation(PsiTreeChangeEvent event) {
+        PsiFile psiFile = event.getFile();
+        if (psiFile != null) {
+            VirtualFile file = psiFile.getVirtualFile();
+            if (file != null && !file.isDirectory()) {
+                versionManager.saveInitialVersion(file);
             }
         }
     }

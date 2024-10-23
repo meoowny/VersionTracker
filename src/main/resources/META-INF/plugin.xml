@@ -32,11 +32,7 @@
         <!-- 注册工具窗口 -->
         <toolWindow factoryClass="edu.tongji.versiontracker.VersionTrackerToolWindowFactory" id="Version Tracker" icon="com.intellij.icons.ExpUiIcons.General.History"/>
     </extensions>
-    <!-- 注册 ProjectCloseListener -->
-    <applicationListeners>
-        <listener class="edu.tongji.versiontracker.VersionTrackerProjectCloseListener"
-                  topic="com.intellij.openapi.project.ProjectCloseListener"/>
-    </applicationListeners>
+
 
     <actions>
         <action id="TrackerStatusToggler" class="edu.tongji.versiontracker.TrackerStatusToggler"

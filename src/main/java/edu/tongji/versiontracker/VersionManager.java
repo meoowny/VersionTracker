@@ -104,21 +104,27 @@ public class VersionManager {
                 .filter(Files::isDirectory)
                 .forEach(path -> {
                     Path relativePath = versionTrackerPath.relativize(path);
-                    String relativePathStr = relativePath.toString().replace("\\", "/");
-                    if (relativePathStr.startsWith("version_")) {
+                    String dirName = path.getFileName().toString(); // 获取当前目录的名称
+
+                    // 检查目录是否符合 "version_*" 格式
+                    if (dirName.startsWith("version_")) {
                         try {
-                            String versionStr = relativePathStr.substring("version_".length());
-                            // 检查是否有足够的字符用于提取版本号
+                            // 提取版本号部分
+                            String versionStr = dirName.substring("version_".length());
                             if (!versionStr.isEmpty()) {
                                 int versionNum = Integer.parseInt(versionStr);
-                                String filePath = relativePath.getParent().toString().replace("\\", "/");
-                                int currentMaxVersion = fileVersionNumbers.getOrDefault(filePath, 0);
-                                if (versionNum > currentMaxVersion) {
-                                    fileVersionNumbers.put(filePath, versionNum);
+                                // 获取文件相对路径
+                                Path parentPath = relativePath.getParent();
+                                if (parentPath != null) {
+                                    String filePath = parentPath.toString().replace("\\", "/");
+                                    int currentMaxVersion = fileVersionNumbers.getOrDefault(filePath, 0);
+                                    if (versionNum > currentMaxVersion) {
+                                        fileVersionNumbers.put(filePath, versionNum);
+                                    }
                                 }
                             }
                         } catch (NumberFormatException e) {
-                            LOG.error("Error parsing version number from path: " + relativePathStr, e);
+                            LOG.error("Error parsing version number from directory: " + dirName, e);
                         }
                     }
                 });
@@ -199,12 +205,24 @@ public class VersionManager {
                 continue; // 使用 continue 跳过当前文件，继续下一个
             }
 
+            // 获取相对路径
             String filePath = getRelativePath(file);
-            int versionNumber = fileVersionNumbers.getOrDefault(filePath, 0) + 1; // 当前版本号，如果还没有版本则使用1
-            String versionDirName = "version_" + String.format("%03d", versionNumber);
+
+            // 获取当前文件的最大版本号
+            int maxVersionNumber = fileVersionNumbers.getOrDefault(filePath, 0);
+            if (maxVersionNumber == 0) {
+                continue; // 如果没有版本号，跳过该文件
+            }
+
+            // 生成最新版本的目录路径
+            String versionDirName = "version_" + String.format("%03d", maxVersionNumber);
             Path incrementPath = versionTrackerPath.resolve(filePath).resolve(versionDirName).resolve("increments");
 
-            // 检查 incrementPath 目录下是否有文件
+            // 打印路径以帮助调试
+            System.out.println("Saving version for file: " + filePath);
+            System.out.println("Increment path: " + incrementPath);
+
+            // 检查最新版本目录的 increments 目录下是否有文件
             try {
                 if (Files.exists(incrementPath) && Files.list(incrementPath).anyMatch(Files::isRegularFile)) {
                     saveVersion(file); // 仅当目录中有文件时保存版本
@@ -214,7 +232,6 @@ public class VersionManager {
             }
         }
     }
-
 
     // 增量计数器持久化保存
     private void saveIncrementCounts() {
@@ -471,8 +488,15 @@ public class VersionManager {
                 Files.createDirectories(snapshotPath);
             }
 
+            // 创建 increments 目录
+            Path incrementsPath = versionPath.resolve("increments");
+            if (!Files.exists(incrementsPath)) {
+                Files.createDirectories(incrementsPath);
+            }
+
             String snapshotContent;
 
+            // 判断是否是初始版本
             if (versionNumber == 1) {
                 // 对于初始版本，直接使用当前内容作为快照内容
                 snapshotContent = version.getSnapshots().get(filePath);
@@ -482,12 +506,24 @@ public class VersionManager {
                     return;
                 }
             } else {
-                // 对于后续版本，通过合并增量文件生成快照内容
-                snapshotContent = generateSnapshotContent(filePath, versionNumber);
-                if (snapshotContent == null) {
-                    LOG.error("Failed to generate snapshot content for file: " + filePath);
-                    notifyUser("Failed to generate snapshot content for file: " + filePath);
-                    return;
+                // 判断 increments 目录下是否有内容
+                boolean hasIncrementFiles = Files.list(incrementsPath).anyMatch(Files::isRegularFile);
+                if (hasIncrementFiles) {
+                    // 如果 increments 目录下有文件，合并增量文件生成快照内容
+                    snapshotContent = generateSnapshotContent(filePath, versionNumber);
+                    if (snapshotContent == null) {
+                        LOG.error("Failed to generate snapshot content for file: " + filePath);
+                        notifyUser("Failed to generate snapshot content for file: " + filePath);
+                        return;
+                    }
+                } else {
+                    // 如果 increments 目录为空，直接使用当前内容作为快照内容
+                    snapshotContent = version.getSnapshots().get(filePath);
+                    if (snapshotContent == null) {
+                        LOG.error("No snapshot content available for version of file: " + filePath);
+                        notifyUser("No snapshot content available for version of file: " + filePath);
+                        return;
+                    }
                 }
             }
 
@@ -515,6 +551,7 @@ public class VersionManager {
             notifyUser("Failed to save version for file: " + filePath + " - " + e.getMessage());
         }
     }
+
 
 
     // 保存元数据

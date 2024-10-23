@@ -27,6 +27,7 @@ public class GitManager {
             LOG.info("Initializing new Git repository at: " + projectPath);
             this.git = Git.init().setDirectory(new File(projectPath)).call();
             this.repository = git.getRepository();
+            commitChanges("init");
         } else {
             this.repository = builder.setGitDir(repoPath.toFile())
                 .readEnvironment()
